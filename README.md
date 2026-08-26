@@ -94,12 +94,16 @@ If the plugin is still installed when you restore the stock widget, the next she
 
 ## Development
 
-The repository uses `mise` for a reproducible Node test runtime:
+The repository uses `mise` for a reproducible Node runtime and enforces at least 90% line, branch, and function coverage for the executable `WindowModel.js` logic:
 
 ```bash
-mise run test
-mise run lint
+mise run test      # fast model tests
+mise run coverage  # tests plus all three 90% coverage gates
+mise run lint      # QML validation
+mise run check     # coverage gates plus QML validation
 ```
+
+The coverage workflow runs on every GitHub push and pull request. Declarative QML is validated with `qmllint` and the live Omarchy smoke scenario rather than being included in Node's V8 coverage denominator.
 
 Install a local checkout through the same plugin path used in production:
 

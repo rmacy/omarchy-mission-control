@@ -1,13 +1,33 @@
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
+import Module from "node:module"
+import { dirname } from "node:path"
+import { fileURLToPath } from "node:url"
 import { test } from "node:test"
-import vm from "node:vm"
 
-const source = readFileSync(new URL("../WindowModel.js", import.meta.url), "utf8")
-  .replace(/^\.pragma library\s*/m, "")
-const model = {}
-vm.createContext(model)
-vm.runInContext(source, model, { filename: "WindowModel.js" })
+// Compile the real WindowModel.js through Node's CommonJS compiler so V8
+// attributes coverage to the plugin file itself. `.pragma library` is a QML
+// directive; blank it out (keeping the line) so line numbers stay aligned.
+const modelUrl = new URL("../WindowModel.js", import.meta.url)
+const modelPath = fileURLToPath(modelUrl)
+const exported = [
+  "numberOr", "valuesOf", "metadata", "workspaceId", "monitorId",
+  "historyRank", "stableAddress", "isVisibleToplevel", "visibleToplevels",
+  "desktopToplevels", "workspaceThumbnailRect", "workspaceIds", "gridColumns",
+  "nextGridIndex", "nextFreeWorkspaceId", "moveArrayValue", "reassignPlan",
+  "removalNeighbor", "remapWorkspaceIds", "spaceCardIndexAt", "shortenedTitle"
+]
+
+const source = readFileSync(modelUrl, "utf8")
+  .replace(/^\.pragma library\r?$/m, "")
+  + `\nmodule.exports = { ${exported.join(", ")} }\n`
+
+const compiled = new Module(modelPath, null)
+compiled.filename = modelPath
+compiled.paths = Module._nodeModulePaths(dirname(modelPath))
+compiled._compile(source, modelPath)
+
+const model = compiled.exports
 
 function toplevel(address, workspace, monitor, focusHistoryID, overrides = {}) {
   return {
@@ -24,6 +44,37 @@ function toplevel(address, workspace, monitor, focusHistoryID, overrides = {}) {
     }
   }
 }
+
+test("normalizes raw IPC fallback metadata", () => {
+  assert.equal(model.numberOr("7", -1), 7)
+  assert.equal(model.numberOr("not-a-number", -1), -1)
+  assert.deepEqual(model.valuesOf({ values: [1, 2] }), [1, 2])
+  assert.equal(Object.keys(model.metadata(null)).length, 0)
+
+  assert.equal(model.workspaceId({ lastIpcObject: { workspace: { id: "4" } } }), 4)
+  assert.equal(model.workspaceId(null), -1)
+  assert.equal(model.monitorId({ lastIpcObject: { monitor: "7" } }), 7)
+  assert.equal(model.historyRank({ focusHistoryID: 2 }), 2)
+  assert.equal(model.historyRank({ focusHistoryID: -1 }), 2147483647)
+  assert.equal(model.stableAddress({ lastIpcObject: { address: "0xa" } }), "0xa")
+  assert.equal(model.stableAddress({ lastIpcObject: { stableId: 42 } }), "42")
+  assert.equal(model.stableAddress(null), "")
+})
+
+test("uses stable addresses when focus history ties", () => {
+  const windows = [
+    toplevel("0xb", 1, 7, 1),
+    toplevel("0xa", 1, 7, 1)
+  ]
+  assert.deepEqual(
+    Array.from(model.visibleToplevels(windows, 1, 7), window => window.address),
+    ["0xa", "0xb"]
+  )
+  assert.deepEqual(
+    Array.from(model.desktopToplevels(windows, 1, 7), window => window.address),
+    ["0xa", "0xb"]
+  )
+})
 
 test("filters live toplevels by workspace and monitor and orders them by MRU", () => {
   const windows = [

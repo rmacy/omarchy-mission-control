@@ -5,10 +5,14 @@ node = "24"
 description = "Run the window and workspace model tests"
 run = "node --test tests/*.test.mjs"
 
+[tasks.coverage]
+description = "Run model tests with >=90% line/branch/function coverage enforced on WindowModel.js"
+run = "node --test --experimental-test-coverage --test-coverage-include='**/WindowModel.js' --test-coverage-lines=90 --test-coverage-branches=90 --test-coverage-functions=90 tests/*.test.mjs"
+
 [tasks.lint]
 description = "Validate plugin QML"
 run = "/usr/lib/qt6/bin/qmllint -I /usr/share/omarchy/shell MissionControl.qml Service.qml BarWidget.qml"
 
 [tasks.check]
 description = "Run every repository check"
-depends = ["test", "lint"]
+depends = ["coverage", "lint"]
