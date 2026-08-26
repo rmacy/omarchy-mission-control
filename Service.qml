@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
+import qs.Commons
 
 Item {
   id: root
@@ -12,6 +13,10 @@ Item {
     + "-" + Math.random().toString(36).slice(2)
   property bool applyQueued: false
   property bool shuttingDown: false
+  property bool barMigrationDone: false
+
+  readonly property string stockWorkspacesId: "omarchy.workspaces"
+  readonly property string widgetId: "bitr0t.mission-control"
 
   function removeGestureLua() {
     return 'hl.gesture({ fingers = 3, direction = "up", mods = "", scale = 1.0, action = "unset" })'
@@ -105,11 +110,127 @@ Item {
     }
   }
 
-  Component.onCompleted: root.queueApply()
+  Component.onCompleted: {
+    root.queueApply()
+    root.queueBarMigration()
+  }
+
+  // ------------------------------------------------------------------
+  // Bar widget migration
+  //
+  // The plugin ships a bar widget that supersedes the stock Workspaces
+  // widget, so a fresh install takes over that slot instead of leaving two
+  // workspace indicators on the bar. Once the shell's config has settled,
+  // every `omarchy.workspaces` entry in bar.layout becomes a
+  // `bitr0t.mission-control` entry in place — same section, same index,
+  // duplicate plugin or stock entries are dropped. A config that already
+  // points here and has no stock entry is left untouched, so repeated shell
+  // reloads write nothing.
+
+  function barLayout(config) {
+    if (!Util.isPlainObject(config)) return null
+    if (!Util.isPlainObject(config.bar)) return null
+    if (!Util.isPlainObject(config.bar.layout)) return null
+    return config.bar.layout
+  }
+
+  function entryId(entry) {
+    return Util.canonicalWidgetId(Util.isPlainObject(entry) ? entry.id : entry)
+  }
+
+
+  function stockWorkspacesCount(layout) {
+    if (!layout) return 0
+    var sections = ["left", "center", "right"]
+    var count = 0
+    for (var s = 0; s < sections.length; s++) {
+      var entries = layout[sections[s]]
+      if (!Array.isArray(entries)) continue
+      for (var i = 0; i < entries.length; i++) {
+        if (root.entryId(entries[i]) === root.stockWorkspacesId) count++
+      }
+    }
+    return count
+  }
+
+  function replaceWorkspacesEntries(config) {
+    var layout = root.barLayout(config)
+    if (!layout) return
+
+    var sections = ["left", "center", "right"]
+
+    // Enabling a multi-kind plugin can place its widget before this migration
+    // runs. Remove those provisional entries so the stock slot remains the
+    // authoritative section, index, and settings source.
+    for (var s = 0; s < sections.length; s++) {
+      var provisional = layout[sections[s]]
+      if (!Array.isArray(provisional)) continue
+      for (var p = provisional.length - 1; p >= 0; p--) {
+        if (root.entryId(provisional[p]) === root.widgetId)
+          provisional.splice(p, 1)
+      }
+    }
+
+    var claimed = false
+    for (var section = 0; section < sections.length; section++) {
+      var entries = layout[sections[section]]
+      if (!Array.isArray(entries)) continue
+      for (var i = 0; i < entries.length; i++) {
+        var entry = entries[i]
+        if (root.entryId(entry) !== root.stockWorkspacesId) continue
+        if (claimed) {
+          entries.splice(i, 1)
+          i--
+          continue
+        }
+        if (Util.isPlainObject(entry)) entry.id = root.widgetId
+        else entries[i] = { id: root.widgetId }
+        claimed = true
+      }
+    }
+  }
+
+  function queueBarMigration() {
+    if (root.shuttingDown || root.barMigrationDone) return
+    barMigrationTimer.restart()
+  }
+
+  function runBarMigration() {
+    if (root.shuttingDown || root.barMigrationDone) return
+    var shell = root.shell
+    if (!shell || typeof shell.mutateShellConfig !== "function"
+        || !Util.isPlainObject(shell.shellConfig)) {
+      root.queueBarMigration()
+      return
+    }
+
+    root.barMigrationDone = true
+    if (root.stockWorkspacesCount(root.barLayout(shell.shellConfig)) === 0) return
+
+    shell.mutateShellConfig(function(config) {
+      root.replaceWorkspacesEntries(config)
+    })
+  }
+
+  Timer {
+    id: barMigrationTimer
+    interval: 2000
+    repeat: false
+    onTriggered: root.runBarMigration()
+  }
+
+  // Startup rewrites shellConfig as defaults and the user file finish
+  // loading; restarting the delay each time keeps the migration from
+  // racing (and clobbering) a configuration that is still settling.
+  Connections {
+    target: root.shell
+    function onShellConfigChanged() { root.queueBarMigration() }
+  }
 
   Component.onDestruction: {
     root.shuttingDown = true
     applyTimer.stop()
+    barMigrationTimer.stop()
     if (removeGestureProcess.running) removeGestureProcess.running = false
     if (applyProcess.running) applyProcess.running = false
     Quickshell.execDetached([

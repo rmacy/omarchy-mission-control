@@ -635,6 +635,7 @@ Item {
           readonly property real monitorAspect: root.overviewMonitor
             && root.overviewMonitor.height > 0
             ? root.overviewMonitor.width / root.overviewMonitor.height : 16 / 9
+          anchors.horizontalCenter: parent.horizontalCenter
           readonly property real chipSpacing: Math.max(Style.spacing.sm, 10)
           readonly property real chipWidth: Math.max(120, Math.min(240,
             (overview.width - 180 - root.workspaceIds.length * chipSpacing)
@@ -724,7 +725,7 @@ Item {
                       ScreencopyView {
                         anchors.fill: parent
                         captureSource: thumbnailWindow.modelData.wayland
-                        live: root.opened
+                        live: root.opened && workspaceChip.selected
                         paintCursor: false
                       }
 

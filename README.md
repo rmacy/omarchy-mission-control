@@ -5,6 +5,7 @@ A macOS-style workspace and window overview for Omarchy. It runs inside the exis
 ## Features
 
 - Live, aspect-correct previews of every window in the selected workspace
+- Bar workspace widget that takes over the stock Workspaces slot and shows exactly the spaces that exist
 - Adaptive layout for laptop, desktop, and ultrawide displays
 - Space cards with drag-to-reorder, correct renumbering, creation, and removal
 - Drag a window onto a space card to move it to another space
@@ -26,6 +27,24 @@ omarchy plugin add https://github.com/rmacy/omarchy-mission-control.git --enable
 ```
 
 Omarchy clones the repository into `~/.config/omarchy/plugins/bitr0t.mission-control/`, validates `manifest.json`, and enables it. The plugin installer does not run hooks or use `sudo`.
+
+## Bar widget
+
+The plugin also ships a bar widget, `Mission Control Spaces`. It replaces Omarchy's built-in Workspaces indicator: instead of always painting workspaces 1-5, it renders the union of Mission Control's saved spaces and the workspaces Hyprland currently has (up to space 10), so the bar grows and shrinks with the overview. Occupied and focused spaces keep the stock styling, vertical bars are supported, and clicking a space focuses it.
+
+The widget reads `~/.local/state/omarchy/mission-control-spaces.json` live: create, remove, or reorder a space in Mission Control and every bar updates immediately. Spaces that exist only in Mission Control (empty managed spaces) still appear, so clicking one recreates and focuses it.
+
+### Automatic migration
+
+On startup the plugin's service replaces any `omarchy.workspaces` entry in `bar.layout` (any of the `left`, `center`, `right` sections of `~/.config/omarchy/shell.json`) with `bitr0t.mission-control`, keeping the entry's section, position, and inline settings. The replacement runs once and is idempotent: repeated shell restarts detect the already-migrated layout and write nothing, and a layout that never contained the stock widget is left untouched.
+
+To put the stock Workspaces widget back — for example before removing the plugin — run:
+
+```bash
+omarchy-shell shell putBarWidget omarchy.workspaces '{}'
+```
+
+The command re-adds `omarchy.workspaces` to the bar's left section (or use the bar's widget settings). After that, `omarchy plugin remove bitr0t.mission-control` leaves the stock widget in place. Removing the plugin without restoring first simply drops the widget from the bar; re-add it with the same `putBarWidget` command.
 
 ## Use
 
@@ -63,6 +82,8 @@ Mission Control remembers managed spaces in `~/.local/state/omarchy/mission-cont
 omarchy plugin update bitr0t.mission-control
 omarchy plugin remove bitr0t.mission-control
 ```
+
+If the plugin is still installed when you restore the stock widget, the next shell restart replaces it with the Mission Control widget again (that is the migration above doing its job); restore after removing, or keep the Mission Control widget and skip this step.
 
 ## Development
 

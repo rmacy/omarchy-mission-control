@@ -2,16 +2,24 @@
   "schemaVersion": 1,
   "id": "bitr0t.mission-control",
   "name": "Mission Control",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "author": "Ryan Macy",
-  "description": "Live workspace and window overview for Omarchy, opened by Control+Up or a three-finger upward swipe.",
+  "description": "Live workspace and window overview for Omarchy, opened by Control+Up or a three-finger upward swipe, plus a bar widget that mirrors its dynamic spaces.",
   "kinds": [
     "overlay",
-    "service"
+    "service",
+    "bar-widget"
   ],
   "keepLoaded": true,
   "entryPoints": {
     "overlay": "MissionControl.qml",
-    "service": "Service.qml"
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Mission Control Spaces",
+    "description": "Workspace buttons that follow Mission Control's dynamic spaces",
+    "category": "Compositor",
+    "allowMultiple": false
   }
 }
