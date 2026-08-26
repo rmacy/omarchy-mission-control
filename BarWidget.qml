@@ -5,6 +5,7 @@ import Quickshell.Hyprland
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "WindowModel.js" as WindowModel
 
 // Bar counterpart of the Mission Control overview. The stock Workspaces
 // widget always paints slots 1-5; this one shows exactly the spaces that
@@ -15,12 +16,11 @@ BarWidget {
   id: root
   moduleName: "bitr0t.mission-control"
 
-  // Shared with MissionControl.qml; the overlay owns writes, the bar only
-  // reads. watchChanges keeps every per-monitor widget instance in sync the
-  // moment the overview saves.
-  readonly property string spacesStatePath: Quickshell.env("HOME")
-    + "/.local/state/omarchy/mission-control-spaces.json"
-  property var managedIds: []
+  readonly property var spaceService: root.bar && root.bar.shell
+    && typeof root.bar.shell.serviceFor === "function"
+    ? root.bar.shell.serviceFor("bitr0t.mission-control") : null
+  readonly property var managedIds: spaceService && spaceService.spacesLoaded
+    ? spaceService.managedWorkspaceIds : []
 
   function workspaceById(id) {
     var values = Hyprland.workspaces.values
@@ -31,37 +31,13 @@ BarWidget {
     return null
   }
 
-  // Managed spaces first, then any live workspace the overview has not
-  // claimed yet. No fixed set: an empty list renders nothing at all.
-  readonly property var spaceIds: {
-    var ids = root.managedIds.slice()
-    var values = Hyprland.workspaces.values
+  // One service owns the saved set. Every bar instance and the overview bind
+  // to the exact same array, then merge in any live Hyprland workspace.
+  readonly property var spaceIds: WindowModel.workspaceIds(
+    Hyprland.workspaces.values, -1,
+    Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : -1,
+    root.managedIds)
 
-    for (var i = 0; i < values.length; i++) {
-      var id = values[i].id
-      if (id > 0 && id <= 10 && ids.indexOf(id) === -1) ids.push(id)
-    }
-
-    ids.sort(function(left, right) { return left - right })
-    return ids
-  }
-
-  function loadManagedSpaces(raw) {
-    var values = []
-    try {
-      var parsed = JSON.parse(String(raw || "[]"))
-      if (Array.isArray(parsed)) values = parsed
-    } catch (_error) { }
-
-    var next = []
-    for (var i = 0; i < values.length; i++) {
-      var id = Math.floor(Number(values[i]))
-      if (id > 0 && id <= 10 && next.indexOf(id) === -1) next.push(id)
-    }
-    next.sort(function(left, right) { return left - right })
-
-    if (JSON.stringify(next) !== JSON.stringify(root.managedIds)) root.managedIds = next
-  }
 
   function focusWorkspace(id) {
     if (!root.bar) return
@@ -132,15 +108,6 @@ BarWidget {
     }
   }
 
-  FileView {
-    id: spacesStateFile
-    path: root.spacesStatePath
-    watchChanges: true
-    printErrors: false
-    onLoaded: root.loadManagedSpaces(text())
-    onLoadFailed: if (root.managedIds.length > 0) root.managedIds = []
-    onFileChanged: reload()
-  }
 
   IpcHandler {
     target: "bitr0t-mission-control-spaces"

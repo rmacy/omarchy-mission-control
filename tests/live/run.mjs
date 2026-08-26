@@ -17,6 +17,7 @@ let originalState = null
 let stateExisted = false
 let stateBackedUp = false
 let desktopBackedUp = false
+let sessionStarted = false
 let originalWorkspace = 1
 let originalCursor = { x: 0, y: 0 }
 let fixtureA = -1
@@ -42,29 +43,35 @@ async function command(program, args = [], options = {}) {
   }
 }
 
+async function shellCommand(args, options = {}) {
+  let lastResult = null
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const result = await command("omarchy-shell", args, { ...options, allowFailure: true })
+    if (!result.error) return result
+    lastResult = result
+    const detail = String(result.stderr || result.error.message)
+    if (!detail.includes("not responding") && !detail.includes("not running"))
+      break
+    await sleep(250)
+  }
+  if (options.allowFailure) return lastResult
+  throw new Error(`omarchy-shell ${args.join(" ")} failed: ${String(
+    lastResult?.stderr || lastResult?.error?.message || "unknown error").trim()}`)
+}
+
 async function jsonCommand(program, args) {
   const { stdout } = await command(program, args)
   return JSON.parse(stdout)
 }
 
 async function shellCall(method, argument = "{}") {
-  let lastError = null
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    try {
-      const { stdout } = await command("omarchy-shell", [
-        "shell", "call", "bitr0t.mission-control", method, String(argument)
-      ])
-      const value = stdout.trim()
-      if (value === "error" || value === "unknown" || value === "unloaded")
-        throw new Error(`Mission Control ${method} returned ${value}`)
-      return value
-    } catch (error) {
-      lastError = error
-      if (!String(error.message).includes("not responding")) throw error
-      await sleep(250)
-    }
-  }
-  throw lastError
+  const { stdout } = await shellCommand([
+    "shell", "call", "bitr0t.mission-control", method, String(argument)
+  ])
+  const value = stdout.trim()
+  if (value === "error" || value === "unknown" || value === "unloaded")
+    throw new Error(`Mission Control ${method} returned ${value}`)
+  return value
 }
 async function status() {
   return JSON.parse(await shellCall("status"))
@@ -75,7 +82,7 @@ async function geometry() {
 }
 
 async function barGeometry() {
-  const { stdout } = await command("omarchy-shell", [
+  const { stdout } = await shellCommand([
     "bitr0t-mission-control-spaces", "geometry"
   ])
   const value = stdout.trim()
@@ -123,7 +130,7 @@ async function ensureOpen(workspaceId = null) {
   const payload = JSON.stringify({ workspace: desired })
   const current = await status().catch(() => ({ open: false }))
   if (!current.open)
-    await command("omarchy-shell", ["shell", "summon", "bitr0t.mission-control", payload])
+    await shellCommand(["shell", "summon", "bitr0t.mission-control", payload])
   else
     await shellCall("open", payload)
   return await waitFor(async () => {
@@ -133,8 +140,8 @@ async function ensureOpen(workspaceId = null) {
 }
 
 async function ensureClosed() {
-  await command("omarchy-shell", ["shell", "hide", "bitr0t.mission-control"], { allowFailure: true })
-  await waitFor(async () => !(await status()).open, 3000)
+  await shellCommand(["shell", "hide", "bitr0t.mission-control"], { allowFailure: true })
+  await waitFor(async () => !(await status()).open)
 }
 
 async function injectUntilOpen(args, attempts = 3) {
@@ -209,6 +216,21 @@ async function dragRects(fromRect, toRect, duration = 480) {
     Math.round(desiredY / correction), 30, duration)
 }
 
+async function synchronizedSpaceState() {
+  const normalize = values => [...new Set(values.map(Number))]
+    .filter(Number.isInteger).sort((a, b) => a - b)
+  const managed = normalize(await managedIds())
+  const mission = normalize((await status()).workspaceIds)
+  const bar = normalize((await barGeometry()).spaces.map(space => space.id))
+  return {
+    managed,
+    mission,
+    bar,
+    synchronized: JSON.stringify(managed) === JSON.stringify(mission)
+      && JSON.stringify(managed) === JSON.stringify(bar)
+  }
+}
+
 async function hyprClients() {
   return await jsonCommand("hyprctl", ["-j", "clients"])
 }
@@ -236,17 +258,22 @@ async function moveWindow(address, workspaceId) {
 }
 
 async function managedIds() {
-  try {
-    const parsed = JSON.parse(await readFile(statePath, "utf8"))
-    return Array.isArray(parsed) ? parsed.map(Number).filter(Number.isInteger) : []
-  } catch {
-    return []
-  }
+  const { stdout } = await shellCommand([
+    "bitr0t-mission-control-state", "get"
+  ])
+  const parsed = JSON.parse(stdout)
+  return Array.isArray(parsed) ? parsed.map(Number).filter(Number.isInteger) : []
 }
 
 async function setManagedIds(ids) {
-  await writeFile(statePath, `${JSON.stringify([...new Set(ids)].sort((a, b) => a - b))}\n`)
-  await sleep(250)
+  const normalized = [...new Set(ids.map(Number).filter(Number.isInteger))]
+    .filter(id => id > 0 && id <= 10).sort((a, b) => a - b)
+  const { stdout } = await shellCommand([
+    "bitr0t-mission-control-state", "set", normalized.join(":")
+  ])
+  if (stdout.trim() === "invalid") throw new Error("workspace state service rejected IDs")
+  await waitFor(async () =>
+    JSON.stringify(await managedIds()) === JSON.stringify(normalized))
 }
 
 async function launchFixtures(count) {
@@ -302,7 +329,8 @@ async function writeReports() {
 }
 
 async function cleanup() {
-  await command("omarchy-shell", ["shell", "hide", "bitr0t.mission-control"], { allowFailure: true })
+  if (!sessionStarted) return
+  await shellCommand(["shell", "hide", "bitr0t.mission-control"], { allowFailure: true })
   for (const child of fixtures) {
     if (!child.killed) child.kill("SIGTERM")
   }
@@ -311,8 +339,13 @@ async function cleanup() {
     if (!child.killed) child.kill("SIGKILL")
   }
   if (stateBackedUp) {
-    if (stateExisted) await writeFile(statePath, originalState)
-    else await unlink(statePath).catch(() => {})
+    let originalIds = []
+    try {
+      const parsed = JSON.parse(originalState.toString("utf8"))
+      if (Array.isArray(parsed)) originalIds = parsed
+    } catch { }
+    await setManagedIds(originalIds)
+    if (!stateExisted) await unlink(statePath).catch(() => {})
   }
   if (desktopBackedUp) {
     await command("hyprctl", ["dispatch", `hl.dsp.focus({ workspace = "${originalWorkspace}" })`], { allowFailure: true })
@@ -324,10 +357,12 @@ async function cleanup() {
 async function main() {
   const required = ["omarchy-shell", "hyprctl", "grim", "magick", "foot", "jq"]
   if (!process.env.HYPRLAND_INSTANCE_SIGNATURE) throw new Error("visual tests require an active Hyprland session")
+  if (process.env.MC_VISUAL_ALLOW_ACTIVE_SESSION !== "1")
+    throw new Error("visual tests control the active desktop; rerun with MC_VISUAL_ALLOW_ACTIVE_SESSION=1")
   for (const binary of required) await command("which", [binary])
   await access(inputHelper, fsConstants.X_OK)
   await access("/dev/uinput", fsConstants.W_OK)
-  await command("omarchy-shell", ["shell", "ping"])
+  await shellCommand(["shell", "ping"])
   await mkdir(outputDir, { recursive: true })
   await rm(outputDir, { recursive: true, force: true })
   await mkdir(outputDir, { recursive: true })
@@ -343,6 +378,7 @@ async function main() {
   originalWorkspace = (await jsonCommand("hyprctl", ["-j", "activeworkspace"])).id
   originalCursor = await jsonCommand("hyprctl", ["-j", "cursorpos"])
   desktopBackedUp = true
+  sessionStarted = true
 
   const used = new Set([...(await managedIds()), ...(await jsonCommand("hyprctl", ["-j", "workspaces"])).map(workspace => workspace.id)])
   let adjacent = null
@@ -383,9 +419,9 @@ async function main() {
   }
 
   await ensureClosed()
-  await command("omarchy-shell", ["shell", "toggle", "bitr0t.mission-control", "{}"])
+  await shellCommand(["shell", "toggle", "bitr0t.mission-control", "{}"])
   await waitFor(async () => (await status()).open)
-  await command("omarchy-shell", ["shell", "toggle", "bitr0t.mission-control", "{}"])
+  await shellCommand(["shell", "toggle", "bitr0t.mission-control", "{}"])
   record("IPC toggle opens and closes", await waitFor(async () => !(await status()).open),
     "two toggles restore closed state", await capture("ipc-toggle-close", "IPC toggle closes"))
 
@@ -468,10 +504,13 @@ async function main() {
   // Pointer geometry and background close.
   await ensureOpen()
   let geo = await geometry()
+  const geometryImage = await capture("interaction-geometry", "Interaction geometry")
   record("Interaction geometry exposes spaces and windows",
     geo.spaces.length >= 2 && geo.windows.length >= 5,
-    `${geo.spaces.length} spaces, ${geo.windows.length} windows`,
-    await capture("interaction-geometry", "Interaction geometry"))
+    `${geo.spaces.length} spaces, ${geo.windows.length} windows`, geometryImage)
+  const initialSync = await synchronizedSpaceState()
+  record("Mission Control and bar start with identical space IDs",
+    initialSync.synchronized, JSON.stringify(initialSync), geometryImage)
   await moveCursor(geo.backgroundPoint.x, geo.backgroundPoint.y)
   await input("click")
   record("Background click closes Mission Control",
@@ -522,8 +561,12 @@ async function main() {
   record("Dynamic bar widget reflects managed spaces",
     Array.isArray(shellLayout) && shellLayout.includes("bitr0t.mission-control"),
     `${JSON.stringify(shellLayout)}; managed ${JSON.stringify(idsAfterAdd)}`, addImage)
+  const addSync = await synchronizedSpaceState()
+  record("Created space synchronizes to every switcher",
+    addSync.synchronized && addSync.managed.includes(addedId),
+    JSON.stringify(addSync), addImage)
 
-  await command("omarchy-shell", ["shell", "summon", "bitr0t.mission-control", JSON.stringify({ workspace: addedId })])
+  await shellCommand(["shell", "summon", "bitr0t.mission-control", JSON.stringify({ workspace: addedId })])
   await sleep(250)
   geo = await geometry()
   const addedSpace = geo.spaces.find(space => space.id === addedId)
@@ -537,6 +580,10 @@ async function main() {
   record("Remove button deletes managed space", removed, `removed ${addedId}`, removeImage)
   record("Dynamic bar reflects space removal", removed,
     `managed ${JSON.stringify(await managedIds())}`, removeImage)
+  const removeSync = await synchronizedSpaceState()
+  record("Removed space disappears from every switcher",
+    removeSync.synchronized && !removeSync.managed.includes(addedId),
+    JSON.stringify(removeSync), removeImage)
 
   // Window hover, invalid drag, valid animated drag.
   await focusWorkspace(fixtureA)
@@ -581,6 +628,10 @@ async function main() {
   const swappedB = addressB ? (await clientByAddress(addressB))?.workspace?.id : -1
   record("Space drag swaps positions and renumbers", swappedA === fixtureB && swappedB === fixtureA,
     `A ${swappedA}, B ${swappedB}`, await capture("space-reorder", "Space reorder"))
+  const reorderSync = await synchronizedSpaceState()
+  record("Reordered space IDs stay synchronized everywhere",
+    reorderSync.synchronized, JSON.stringify(reorderSync),
+    await capture("space-reorder-sync", "Space reorder synchronization"))
   await ensureOpen()
   geo = await geometry()
   await dragRects(geo.spaces.find(space => space.id === fixtureB).rect,
@@ -633,11 +684,13 @@ try {
   fatal = error
   record("Visual runner completed", false, error.stack || error.message)
 } finally {
-  try {
-    await cleanup()
-    record("Cleanup restored desktop", true, "managed spaces, active workspace, cursor, and fixtures restored")
-  } catch (error) {
-    record("Cleanup restored desktop", false, error.message)
+  if (sessionStarted) {
+    try {
+      await cleanup()
+      record("Cleanup restored desktop", true, "managed spaces, active workspace, cursor, and fixtures restored")
+    } catch (error) {
+      record("Cleanup restored desktop", false, error.message)
+    }
   }
   await writeReports().catch(error => {
     process.stderr.write(`failed to write visual report: ${error.stack || error.message}\n`)

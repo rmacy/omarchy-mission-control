@@ -22,10 +22,12 @@ Item {
   property bool windowDropAnimating: false
   property var pendingWindowToplevel: null
   property int pendingWindowWorkspaceId: -1
-  property var managedWorkspaceIds: []
-  property bool spacesLoaded: false
-  readonly property string spacesStatePath: Quickshell.env("HOME")
-    + "/.local/state/omarchy/mission-control-spaces.json"
+  readonly property var spaceService: root.shell
+    && typeof root.shell.serviceFor === "function"
+    ? root.shell.serviceFor("bitr0t.mission-control") : null
+  readonly property var managedWorkspaceIds: spaceService && spaceService.spacesLoaded
+    ? spaceService.managedWorkspaceIds : []
+  readonly property bool spacesLoaded: !!spaceService && spaceService.spacesLoaded
   property bool opened: false
   property real revealProgress: 0
   property int targetMonitorId: -1
@@ -254,27 +256,16 @@ Item {
     return '"address:' + address + '"'
   }
 
-  function loadManagedSpaces(raw) {
-    var values = []
-    try {
-      var parsed = JSON.parse(String(raw || "[]"))
-      if (Array.isArray(parsed)) values = parsed
-    } catch (_error) { }
-    root.saveManagedSpaces(values)
-  }
 
   function saveManagedSpaces(values) {
-    var next = []
-    var source = Array.isArray(values) ? values : []
-    for (var i = 0; i < source.length; i++) {
-      var id = Math.floor(Number(source[i]))
-      if (id > 0 && id <= 10 && next.indexOf(id) === -1) next.push(id)
+    if (!root.spaceService
+        || typeof root.spaceService.setManagedSpaces !== "function") {
+      console.warn("bitr0t.mission-control: workspace state service is unavailable")
+      return []
     }
-    next.sort(function(left, right) { return left - right })
-    root.managedWorkspaceIds = next
-    root.spacesLoaded = true
-    spacesStateFile.setText(JSON.stringify(next) + "\n")
-    if (root.opened) root.refreshOverview()
+    var next = root.spaceService.setManagedSpaces(values)
+    if (root.opened) Qt.callLater(function() { root.refreshOverview() })
+    return next
   }
 
   function runWorkspaceLua(lua, description) {
@@ -544,18 +535,6 @@ Item {
   }
 
 
-  FileView {
-    id: spacesStateFile
-    path: root.spacesStatePath
-    watchChanges: false
-    printErrors: false
-    atomicWrites: true
-    onLoaded: if (!root.spacesLoaded) root.loadManagedSpaces(text())
-    onLoadFailed: {
-      root.spacesLoaded = true
-      if (root.opened) root.refreshOverview()
-    }
-  }
 
   Timer {
     id: refreshTimer

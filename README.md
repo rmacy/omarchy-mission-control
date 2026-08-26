@@ -39,7 +39,7 @@ Omarchy clones the repository into `~/.config/omarchy/plugins/bitr0t.mission-con
 
 The plugin also ships a bar widget, `Mission Control Spaces`. It replaces Omarchy's built-in Workspaces indicator: instead of always painting workspaces 1-5, it renders the union of Mission Control's saved spaces and the workspaces Hyprland currently has (up to space 10), so the bar grows and shrinks with the overview. Occupied and focused spaces keep the stock styling, vertical bars are supported, and clicking a space focuses it.
 
-The widget reads `~/.local/state/omarchy/mission-control-spaces.json` live: create, remove, or reorder a space in Mission Control and every bar updates immediately. Spaces that exist only in Mission Control (empty managed spaces) still appear, so clicking one recreates and focuses it.
+The plugin service is the single owner of `~/.local/state/omarchy/mission-control-spaces.json`. Mission Control and every bar instance bind directly to that service's normalized ID array, so create, remove, or reorder updates are synchronous and cannot diverge across independent file watchers. Spaces that exist only in Mission Control (empty managed spaces) still appear, so clicking one recreates and focuses it.
 
 ### Automatic migration
 
@@ -107,13 +107,15 @@ The coverage workflow runs on every GitHub push and pull request. Declarative QM
 
 ### Live interaction and visual evidence
 
-Run the compositor-level suite from an active Hyprland session:
+The compositor-level suite deliberately drives keyboard, pointer, workspace, and window state. Run it only in a disposable or otherwise idle Hyprland session:
 
 ```bash
-mise run visual-test
+MC_VISUAL_ALLOW_ACTIVE_SESSION=1 mise run visual-test
 ```
 
-The suite builds a temporary `/dev/uinput` helper, launches isolated `foot` fixture windows, drives keyboard and pointer interactions against the real Mission Control surface, checks Hyprland/workspace/bar state, and restores the original workspace and managed-space file in cleanup.
+Without that explicit opt-in, the runner refuses to start. The suite builds a temporary `/dev/uinput` helper, launches isolated `foot` fixture windows, drives the real Mission Control surface, checks Hyprland/workspace/bar state, and restores the original workspace and managed-space file in cleanup.
+
+The battery covers the global hotkey and real three-finger gesture injection, every keyboard path, bar and space clicks, add/remove, keyboard and pointer reordering, window activation/close, invalid and valid drag flows, animation, synchronization, and cleanup restoration.
 
 Evidence is written under `tests/live/output/`:
 
@@ -122,7 +124,7 @@ Evidence is written under `tests/live/output/`:
 - `contact-sheet.png` — all scenario screenshots on one review surface
 - individual PNGs for keyboard, pointer, space, window, drag, animation, and bar scenarios
 
-The runner requires write access to `/dev/uinput` plus `foot`, `grim`, ImageMagick, `hyprctl`, and `omarchy-shell`. It refuses to run outside Hyprland or when a prerequisite is missing.
+The runner requires write access to `/dev/uinput` plus `foot`, `grim`, ImageMagick, `hyprctl`, and `omarchy-shell`. It refuses to run outside Hyprland, when a prerequisite is missing, or without the active-session acknowledgement above.
 
 Install a local checkout through the same plugin path used in production:
 

@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 import qs.Commons
+import "WindowModel.js" as WindowModel
 
 Item {
   id: root
@@ -17,6 +18,35 @@ Item {
 
   readonly property string stockWorkspacesId: "omarchy.workspaces"
   readonly property string widgetId: "bitr0t.mission-control"
+  readonly property string spacesStatePath: Quickshell.env("HOME")
+    + "/.local/state/omarchy/mission-control-spaces.json"
+  property var managedWorkspaceIds: []
+  property bool spacesLoaded: false
+
+  function normalizedManagedSpaces(values) {
+    return WindowModel.workspaceIds([], -1, -1, values)
+  }
+
+  function loadManagedSpaces(raw) {
+    var values = []
+    try {
+      var parsed = JSON.parse(String(raw || "[]"))
+      if (Array.isArray(parsed)) values = parsed
+    } catch (_error) { }
+    var next = root.normalizedManagedSpaces(values)
+    if (JSON.stringify(next) !== JSON.stringify(root.managedWorkspaceIds))
+      root.managedWorkspaceIds = next
+    root.spacesLoaded = true
+  }
+
+  function setManagedSpaces(values) {
+    var next = root.normalizedManagedSpaces(values)
+    if (JSON.stringify(next) !== JSON.stringify(root.managedWorkspaceIds))
+      root.managedWorkspaceIds = next
+    root.spacesLoaded = true
+    spacesStateFile.setText(JSON.stringify(next) + "\n")
+    return next
+  }
 
   function removeGestureLua() {
     return 'hl.gesture({ fingers = 3, direction = "up", mods = "", scale = 1.0, action = "unset" })'
@@ -225,6 +255,38 @@ Item {
   Connections {
     target: root.shell
     function onShellConfigChanged() { root.queueBarMigration() }
+  }
+
+  FileView {
+    id: spacesStateFile
+    path: root.spacesStatePath
+    watchChanges: true
+    printErrors: false
+    atomicWrites: true
+    onLoaded: root.loadManagedSpaces(text())
+    onLoadFailed: {
+      root.managedWorkspaceIds = []
+      root.spacesLoaded = true
+    }
+    onFileChanged: reload()
+  }
+
+  IpcHandler {
+    target: "bitr0t-mission-control-state"
+
+    function get(): string {
+      return JSON.stringify(root.managedWorkspaceIds)
+    }
+
+    function set(ids: string): string {
+      var raw = String(ids || "").trim()
+      var values = raw ? raw.split(":") : []
+      for (var i = 0; i < values.length; i++) {
+        if (!/^\d+$/.test(values[i])) return "invalid"
+        values[i] = Number(values[i])
+      }
+      return JSON.stringify(root.setManagedSpaces(values))
+    }
   }
 
   Component.onDestruction: {
