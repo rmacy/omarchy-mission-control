@@ -22,6 +22,10 @@ Item {
     + "/.local/state/omarchy/mission-control-spaces.json"
   property var managedWorkspaceIds: []
   property bool spacesLoaded: false
+  readonly property string spaceNamesPath: Quickshell.env("HOME")
+    + "/.local/state/omarchy/mission-control-space-names.json"
+  property var spaceNames: ({})
+  property bool namesLoaded: false
 
   function normalizedManagedSpaces(values) {
     return WindowModel.workspaceIds([], -1, -1, values)
@@ -46,6 +50,59 @@ Item {
     root.spacesLoaded = true
     spacesStateFile.setText(JSON.stringify(next) + "\n")
     return next
+  }
+
+  function normalizedSpaceNames(values) {
+    var source = values && typeof values === "object" ? values : ({})
+    var next = ({})
+    for (var key in source) {
+      var id = Math.floor(Number(key))
+      var name = WindowModel.normalizedSpaceName(source[key], 32)
+      if (id > 0 && id <= 10 && name) next[String(id)] = name
+    }
+    return next
+  }
+
+  function loadSpaceNames(raw) {
+    var values = ({})
+    try {
+      var parsed = JSON.parse(String(raw || "{}"))
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+        values = parsed
+    } catch (_error) { }
+    var next = root.normalizedSpaceNames(values)
+    if (JSON.stringify(next) !== JSON.stringify(root.spaceNames))
+      root.spaceNames = next
+    root.namesLoaded = true
+  }
+
+  function setSpaceNames(values) {
+    var next = root.normalizedSpaceNames(values)
+    if (JSON.stringify(next) !== JSON.stringify(root.spaceNames))
+      root.spaceNames = next
+    root.namesLoaded = true
+    spaceNamesFile.setText(JSON.stringify(next) + "\n")
+    return next
+  }
+
+  function spaceName(workspaceId) {
+    return String(root.spaceNames[String(Math.floor(Number(workspaceId)))] || "")
+  }
+
+  function setSpaceName(workspaceId, value) {
+    var id = Math.floor(Number(workspaceId))
+    if (id <= 0 || id > 10) return ""
+    var next = JSON.parse(JSON.stringify(root.spaceNames || ({})))
+    var name = WindowModel.normalizedSpaceName(value, 32)
+    if (name) next[String(id)] = name
+    else delete next[String(id)]
+    root.setSpaceNames(next)
+    return name
+  }
+
+  function remapNames(currentIds, desiredIds) {
+    return root.setSpaceNames(
+      WindowModel.remapSpaceNames(root.spaceNames, currentIds, desiredIds))
   }
 
   function removeGestureLua() {
@@ -264,9 +321,23 @@ Item {
     printErrors: false
     atomicWrites: true
     onLoaded: root.loadManagedSpaces(text())
-    onLoadFailed: {
+    onLoadFailed: if (!root.spacesLoaded) {
       root.managedWorkspaceIds = []
       root.spacesLoaded = true
+    }
+    onFileChanged: reload()
+  }
+
+  FileView {
+    id: spaceNamesFile
+    path: root.spaceNamesPath
+    watchChanges: true
+    printErrors: false
+    atomicWrites: true
+    onLoaded: root.loadSpaceNames(text())
+    onLoadFailed: if (!root.namesLoaded) {
+      root.spaceNames = ({})
+      root.namesLoaded = true
     }
     onFileChanged: reload()
   }
@@ -286,6 +357,26 @@ Item {
         values[i] = Number(values[i])
       }
       return JSON.stringify(root.setManagedSpaces(values))
+    }
+
+    function names(): string {
+      return JSON.stringify(root.spaceNames)
+    }
+
+    function name(id: string): string {
+      return root.spaceName(id)
+    }
+
+    function rename(id: string, value: string): string {
+      return root.setSpaceName(id, value)
+    }
+
+    function clearName(id: string): string {
+      return root.setSpaceName(id, "")
+    }
+
+    function clearNames(): string {
+      return JSON.stringify(root.setSpaceNames(({})))
     }
   }
 

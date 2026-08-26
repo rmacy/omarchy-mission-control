@@ -15,7 +15,8 @@ const exported = [
   "historyRank", "stableAddress", "isVisibleToplevel", "visibleToplevels",
   "desktopToplevels", "workspaceThumbnailRect", "workspaceIds", "gridColumns",
   "nextGridIndex", "nextFreeWorkspaceId", "moveArrayValue", "reassignPlan",
-  "removalNeighbor", "remapWorkspaceIds", "spaceCardIndexAt", "shortenedTitle"
+  "removalNeighbor", "remapWorkspaceIds", "normalizedSpaceName",
+  "remapSpaceNames", "spaceCardIndexAt", "shortenedTitle"
 ]
 
 const source = readFileSync(modelUrl, "utf8")
@@ -213,6 +214,27 @@ test("remaps managed space ids after content reordering", () => {
   )
   assert.deepEqual(Array.from(model.remapWorkspaceIds([], [1, 2], [2, 1])), [])
   assert.deepEqual(Array.from(model.remapWorkspaceIds([1], [1], [1, 2])), [])
+})
+
+test("normalizes user-defined space names", () => {
+  assert.equal(model.normalizedSpaceName("  Deep   Work  "), "Deep Work")
+  assert.equal(model.normalizedSpaceName("   "), "")
+  assert.equal(model.normalizedSpaceName("abcdefghijkl", 6), "abcdef")
+  assert.equal(model.normalizedSpaceName(null), "")
+})
+
+test("remaps names with workspace content while preserving outside spaces", () => {
+  const remapped = JSON.parse(JSON.stringify(model.remapSpaceNames(
+    { 1: "Work", 2: "Chat", 3: "   ", 9: "Outside", bad: "Ignored" },
+    [1, 2, 3],
+    [2, 1, 3]
+  )))
+  assert.deepEqual(remapped, { 1: "Chat", 2: "Work", 9: "Outside" })
+
+  const unchanged = JSON.parse(JSON.stringify(
+    model.remapSpaceNames({ 1: "Work" }, [1], [1, 2])
+  ))
+  assert.deepEqual(unchanged, { 1: "Work" })
 })
 
 test("picks an adjacent neighbor for workspace removal", () => {

@@ -277,6 +277,34 @@ function remapWorkspaceIds(ids, currentIds, desiredIds) {
   return remapped
 }
 
+function normalizedSpaceName(value, limit) {
+  var text = String(value || "").replace(/\s+/g, " ").trim()
+  var maximum = Math.max(1, numberOr(limit, 32))
+  return text.slice(0, maximum)
+}
+
+function remapSpaceNames(names, currentIds, desiredIds) {
+  var source = names && typeof names === "object" ? names : ({})
+  var current = valuesOf(currentIds)
+  var desired = valuesOf(desiredIds)
+  var canRemap = current.length > 0 && current.length === desired.length
+  var result = ({})
+
+  for (var key in source) {
+    var oldId = Math.floor(numberOr(key, -1))
+    var name = normalizedSpaceName(source[key], 32)
+    if (oldId <= 0 || !name) continue
+
+    var newId = oldId
+    if (canRemap) {
+      var position = desired.indexOf(oldId)
+      if (position >= 0) newId = Math.floor(numberOr(current[position], oldId))
+    }
+    if (newId > 0) result[String(newId)] = name
+  }
+  return result
+}
+
 function spaceCardIndexAt(x, y, count, cardWidth, cardHeight, cardSpacing) {
   var numericCount = Math.floor(numberOr(count, 0))
   var size = numericCount > 0 ? numericCount : valuesOf(count).length

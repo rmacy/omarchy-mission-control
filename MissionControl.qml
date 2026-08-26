@@ -28,6 +28,7 @@ Item {
   readonly property var managedWorkspaceIds: spaceService && spaceService.spacesLoaded
     ? spaceService.managedWorkspaceIds : []
   readonly property bool spacesLoaded: !!spaceService && spaceService.spacesLoaded
+  property int editingWorkspaceId: -1
   property bool opened: false
   property real revealProgress: 0
   property int targetMonitorId: -1
@@ -228,6 +229,7 @@ Item {
     root.opened = false
     root.windows = []
     root.selectedIndex = -1
+    root.editingWorkspaceId = -1
     root.windowDragActive = false
     root.windowDragIndex = -1
     root.windowDropWorkspaceId = -1
@@ -268,6 +270,27 @@ Item {
     return next
   }
 
+  function spaceName(workspaceId) {
+    return root.spaceService && typeof root.spaceService.spaceName === "function"
+      ? root.spaceService.spaceName(workspaceId) : ""
+  }
+
+  function beginSpaceRename(workspaceId) {
+    root.editingWorkspaceId = Math.floor(Number(workspaceId))
+  }
+
+  function cancelSpaceRename() {
+    root.editingWorkspaceId = -1
+    keyScope.forceActiveFocus()
+  }
+
+  function commitSpaceRename(workspaceId, value) {
+    if (root.spaceService && typeof root.spaceService.setSpaceName === "function")
+      root.spaceService.setSpaceName(workspaceId, value)
+    root.editingWorkspaceId = -1
+    keyScope.forceActiveFocus()
+  }
+
   function runWorkspaceLua(lua, description) {
     if (workspaceProcess.running) {
       console.warn("bitr0t.mission-control: workspace op still running, skipped " + description)
@@ -303,6 +326,8 @@ Item {
         nextManaged.push(root.managedWorkspaceIds[i])
     }
     root.saveManagedSpaces(nextManaged)
+    if (root.spaceService && typeof root.spaceService.setSpaceName === "function")
+      root.spaceService.setSpaceName(removedId, "")
 
     var lua = [
       'hl.dispatch(hl.dsp.focus({ workspace = ' + root.workspaceSelector(neighbor) + ' }))'
@@ -341,6 +366,8 @@ Item {
       }
       runWorkspaceLua(lua.join("\n"), "reorder workspaces")
     }
+    if (root.spaceService && typeof root.spaceService.remapNames === "function")
+      root.spaceService.remapNames(currentIds, desiredIds)
 
     root.saveManagedSpaces(WindowModel.remapWorkspaceIds(
       root.managedWorkspaceIds, currentIds, desiredIds))
@@ -479,7 +506,9 @@ Item {
         index: i,
         id: Number(space.modelData),
         rect: root.interactionRect(space),
-        removeRect: root.interactionRect(space.removeButtonItem)
+        removeRect: root.interactionRect(space.removeButtonItem),
+        renameRect: root.interactionRect(space.renameButtonItem),
+        name: String(space.displayName || "")
       })
     }
 
@@ -612,6 +641,10 @@ Item {
         var vimModifiers = event.modifiers === Qt.NoModifier
           || event.modifiers === Qt.ShiftModifier
         var workspaceNumber = root.workspaceNumberForKey(event.key)
+        if (root.editingWorkspaceId >= 0) {
+          event.accepted = false
+          return
+        }
         if (event.key === Qt.Key_Escape || (event.key === Qt.Key_Q && vimModifiers)) {
           root.close()
           event.accepted = true
@@ -731,6 +764,9 @@ Item {
                 required property int modelData
                 required property int index
                 property alias removeButtonItem: removeSpaceButton
+                property alias renameButtonItem: renameSpaceButton
+                readonly property string displayName: root.spaceName(modelData)
+                  || ("Space " + modelData)
                 readonly property bool selected: modelData === root.selectedWorkspaceId
                 readonly property int windowCount: root.workspaceWindowCount(modelData)
                 readonly property bool windowDropTarget: (root.windowDragActive
@@ -816,7 +852,7 @@ Item {
                       spacing: 6
 
                       Text {
-                        text: "Space " + workspaceChip.modelData
+                        text: workspaceChip.displayName
                         color: workspaceChip.selected
                           ? root.selectedTextColor : root.foregroundColor
                         font.family: Style.font.menuFamily
@@ -850,6 +886,7 @@ Item {
                   id: workspaceDrag
                   anchors.fill: parent
                   enabled: !root.windowDragActive && !root.windowDropAnimating
+                    && root.editingWorkspaceId < 0
                   hoverEnabled: true
                   cursorShape: root.dragActive ? Qt.ClosedHandCursor : Qt.OpenHandCursor
                   preventStealing: true
@@ -901,7 +938,8 @@ Item {
                 Rectangle {
                   id: removeSpaceButton
                   visible: workspaceChip.hovered && !root.dragActive
-                    && !root.windowDragActive && root.workspaceIds.length > 1
+                    && !root.windowDragActive && root.editingWorkspaceId < 0
+                    && root.workspaceIds.length > 1
                   anchors.top: parent.top
                   anchors.right: parent.right
                   anchors.margins: 4
@@ -927,6 +965,87 @@ Item {
                     onClicked: function(mouse) {
                       mouse.accepted = true
                       root.removeWorkspace(workspaceChip.modelData)
+                    }
+                  }
+                }
+
+                Rectangle {
+                  id: renameSpaceButton
+                  visible: workspaceChip.hovered && !root.dragActive
+                    && !root.windowDragActive && root.editingWorkspaceId < 0
+                  anchors.top: parent.top
+                  anchors.left: parent.left
+                  anchors.margins: 4
+                  width: 44
+                  height: 22
+                  radius: height / 2
+                  color: Util.alpha(root.scrimColor, 0.92)
+                  border.color: Util.alpha(root.borderColor, 0.8)
+                  border.width: 1
+                  z: 30
+
+                  Text {
+                    anchors.centerIn: parent
+                    text: "Name"
+                    color: root.foregroundColor
+                    font.family: Style.font.menuFamily
+                    font.pixelSize: Style.font.caption
+                    font.weight: Font.DemiBold
+                  }
+
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: function(mouse) {
+                      mouse.accepted = true
+                      root.beginSpaceRename(workspaceChip.modelData)
+                    }
+                  }
+                }
+
+                Rectangle {
+                  visible: root.editingWorkspaceId === workspaceChip.modelData
+                  anchors.left: parent.left
+                  anchors.right: parent.right
+                  anchors.bottom: parent.bottom
+                  anchors.margins: 4
+                  height: 34
+                  radius: 8
+                  color: Util.alpha(root.backgroundColor, 0.97)
+                  border.color: root.selectedBorderColor
+                  border.width: 2
+                  z: 40
+
+                  TextInput {
+                    id: spaceNameInput
+                    anchors.fill: parent
+                    anchors.margins: 7
+                    maximumLength: 32
+                    selectByMouse: true
+                    color: root.foregroundColor
+                    selectionColor: root.selectedColor
+                    selectedTextColor: root.selectedTextColor
+                    font.family: Style.font.menuFamily
+                    font.pixelSize: Style.font.body
+                    verticalAlignment: TextInput.AlignVCenter
+
+                    onVisibleChanged: if (visible) {
+                      text = root.spaceName(workspaceChip.modelData)
+                      forceActiveFocus()
+                      selectAll()
+                    }
+
+                    Keys.onReturnPressed: function(event) {
+                      root.commitSpaceRename(workspaceChip.modelData, text)
+                      event.accepted = true
+                    }
+                    Keys.onEnterPressed: function(event) {
+                      root.commitSpaceRename(workspaceChip.modelData, text)
+                      event.accepted = true
+                    }
+                    Keys.onEscapePressed: function(event) {
+                      root.cancelSpaceRename()
+                      event.accepted = true
                     }
                   }
                 }

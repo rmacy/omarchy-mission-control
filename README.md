@@ -9,6 +9,7 @@ A macOS-style workspace and window overview for Omarchy. It runs inside the exis
 - Bar workspace widget that takes over the stock Workspaces slot and shows exactly the spaces that exist
 - Adaptive layout for laptop, desktop, and ultrawide displays
 - Space cards with drag-to-reorder, correct renumbering, creation, and removal
+- Persistent custom space names shared by Mission Control and the Omarchy bar
 - Drag a window onto a space card to move it to another space
 - Focuses the monitor that was active when the overview opened
 - Uses Omarchy's active colors, typography, and application icons
@@ -71,6 +72,7 @@ Inside the overview:
 | Drag a workspace | Reorder spaces; Hyprland IDs are renumbered to match |
 | Workspace `+` button | Create and switch to a persistent space |
 | Workspace `×` button | Remove a space and move its windows to its neighbor |
+| Workspace `Name` button | Edit the space name inline; `Enter` saves and `Escape` cancels |
 | `Shift + Left` / `Shift + Right` | Reorder the selected workspace |
 | Drag a window onto a space card | Move only that window to the space; the view and focus stay put |
 | `Shift + 1` through `Shift + 9` | Move the selected window to that space |
@@ -81,7 +83,7 @@ Inside the overview:
 
 The plugin registers its shortcut and gesture at runtime. If either trigger replaced a user mapping, disabling or removing the plugin reloads Hyprland so the user's configured mapping returns.
 
-Mission Control remembers managed spaces in `~/.local/state/omarchy/mission-control-spaces.json` and recreates empty ones on demand. It supports spaces 1 through 10, matching Omarchy's workspace conventions. Removing the final remaining space is disabled.
+Mission Control remembers managed spaces in `~/.local/state/omarchy/mission-control-spaces.json` and custom names in `~/.local/state/omarchy/mission-control-space-names.json`. Names follow their space when positions are reordered and appear in the dynamic Omarchy bar. It supports spaces 1 through 10, matching Omarchy's workspace conventions. Removing the final remaining space is disabled.
 
 ## Update or remove
 

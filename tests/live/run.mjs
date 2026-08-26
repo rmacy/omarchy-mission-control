@@ -14,6 +14,7 @@ const screenshots = []
 const fixtures = []
 let shotNumber = 0
 let originalState = null
+let originalNames = ({})
 let stateExisted = false
 let stateBackedUp = false
 let desktopBackedUp = false
@@ -276,6 +277,35 @@ async function setManagedIds(ids) {
     JSON.stringify(await managedIds()) === JSON.stringify(normalized))
 }
 
+async function spaceNames() {
+  const { stdout } = await shellCommand([
+    "bitr0t-mission-control-state", "names"
+  ])
+  const parsed = JSON.parse(stdout)
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : ({})
+}
+
+async function renameSpace(workspaceId, name) {
+  if (name)
+    await shellCommand([
+      "bitr0t-mission-control-state", "rename", String(workspaceId), String(name)
+    ])
+  else
+    await shellCommand([
+      "bitr0t-mission-control-state", "clearName", String(workspaceId)
+    ])
+  await waitFor(async () => {
+    const names = await spaceNames()
+    return name ? names[String(workspaceId)] === name
+      : !Object.prototype.hasOwnProperty.call(names, String(workspaceId))
+  })
+}
+async function restoreSpaceNames(names) {
+  await shellCommand(["bitr0t-mission-control-state", "clearNames"])
+  for (const [workspaceId, name] of Object.entries(names || {}))
+    await renameSpace(workspaceId, name)
+}
+
 async function launchFixtures(count) {
   await focusWorkspace(fixtureA)
   for (let index = 0; index < count; index += 1) {
@@ -347,6 +377,7 @@ async function cleanup() {
     await setManagedIds(originalIds)
     if (!stateExisted) await unlink(statePath).catch(() => {})
   }
+  await restoreSpaceNames(originalNames)
   if (desktopBackedUp) {
     await command("hyprctl", ["dispatch", `hl.dsp.focus({ workspace = "${originalWorkspace}" })`], { allowFailure: true })
     await command("hyprctl", ["dispatch", `hl.dsp.cursor.move({ x = ${originalCursor.x}, y = ${originalCursor.y} })`], { allowFailure: true })
@@ -375,6 +406,7 @@ async function main() {
     stateExisted = false
   }
   stateBackedUp = true
+  originalNames = await spaceNames()
   originalWorkspace = (await jsonCommand("hyprctl", ["-j", "activeworkspace"])).id
   originalCursor = await jsonCommand("hyprctl", ["-j", "cursorpos"])
   desktopBackedUp = true
@@ -544,6 +576,28 @@ async function main() {
   await waitFor(async () =>
     (await jsonCommand("hyprctl", ["-j", "activeworkspace"])).id === fixtureA)
 
+
+  await ensureOpen(fixtureA)
+  geo = await geometry()
+  let renameSpaceGeometry = geo.spaces.find(space => space.id === fixtureA)
+  await moveCursor(renameSpaceGeometry.rect.centerX, renameSpaceGeometry.rect.centerY)
+  await sleep(120)
+  geo = await geometry()
+  renameSpaceGeometry = geo.spaces.find(space => space.id === fixtureA)
+  await clickRect(renameSpaceGeometry.renameRect)
+  for (const key of ["h", "j", "k", "l", "1"]) await input("key", key)
+  await input("key", "enter")
+  const renamed = await waitFor(async () =>
+    (await spaceNames())[String(fixtureA)] === "hjkl1")
+  geo = await geometry()
+  const missionNamed = geo.spaces.find(space => space.id === fixtureA)?.name
+  const barNamed = (await barGeometry()).spaces.find(space => space.id === fixtureA)?.name
+  const renameImage = await capture("space-rename", "Rename space")
+  record("Inline editor names a space", renamed && missionNamed === "hjkl1",
+    `Mission Control: ${missionNamed}`, renameImage)
+  record("Named space synchronizes to Omarchy bar", barNamed === "hjkl1",
+    `bar: ${barNamed}`, renameImage)
+  await renameSpace(fixtureA, "")
   // Add and remove controls, including bar state.
   await ensureOpen()
   geo = await geometry()

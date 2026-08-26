@@ -38,6 +38,11 @@ BarWidget {
     Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : -1,
     root.managedIds)
 
+  function spaceName(workspaceId) {
+    return root.spaceService && typeof root.spaceService.spaceName === "function"
+      ? root.spaceService.spaceName(workspaceId) : ""
+  }
+
 
   function focusWorkspace(id) {
     if (!root.bar) return
@@ -65,6 +70,7 @@ BarWidget {
       spaces.push({
         index: i,
         id: Number(button.modelData),
+        name: root.spaceName(button.modelData),
         rect: root.interactionRect(button)
       })
     }
@@ -95,13 +101,18 @@ BarWidget {
         readonly property var workspace: root.workspaceById(modelData)
         readonly property bool occupied: workspace !== null && workspace.toplevels.values.length > 0
         readonly property bool focused: Hyprland.focusedWorkspace !== null && Hyprland.focusedWorkspace.id === modelData
+        readonly property string customName: root.spaceName(modelData)
 
         bar: root.bar
-        text: focused ? "\uDB85\uDCFB" : (modelData === 10 ? "0" : String(modelData))
+        text: customName || (focused ? "\uDB85\uDCFB" : (modelData === 10 ? "0" : String(modelData)))
         opacity: occupied || focused ? 1 : 0.5
         horizontalMargin: 6
         verticalPadding: 6
-        fixedWidth: root.vertical ? root.barSize : Style.space(20)
+        fixedWidth: root.vertical ? root.barSize
+          : (customName
+            ? Math.min(Style.space(96), Math.max(Style.space(20),
+              Style.space(12 + customName.length * 7)))
+            : Style.space(20))
         fixedHeight: root.barSize
         onPressed: function() { root.focusWorkspace(modelData) }
       }
