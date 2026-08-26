@@ -233,6 +233,7 @@ Item {
     root.pendingWindowToplevel = null
     root.pendingWindowWorkspaceId = -1
     windowDropTimer.stop()
+    windowDropCleanupTimer.stop()
   }
 
   function selectWorkspace(workspaceId) {
@@ -415,8 +416,9 @@ Item {
 
   function moveSelectedWindowToWorkspace(workspaceId) {
     if (root.selectedIndex < 0 || root.selectedIndex >= root.windows.length) return false
-    return root.moveWindowToWorkspace(
-      root.windows[root.selectedIndex].toplevel, workspaceId)
+    var item = windowRepeater.itemAt(root.selectedIndex)
+    return item && typeof item.animateToWorkspace === "function"
+      ? item.animateToWorkspace(workspaceId) : false
   }
 
   function moveSelection(horizontal, vertical) {
@@ -496,15 +498,23 @@ Item {
     interval: 180
     repeat: false
     onTriggered: {
-      var toplevel = root.pendingWindowToplevel
-      var workspaceId = root.pendingWindowWorkspaceId
+      root.moveWindowToWorkspace(
+        root.pendingWindowToplevel, root.pendingWindowWorkspaceId)
+      windowDropCleanupTimer.restart()
+    }
+  }
+
+  Timer {
+    id: windowDropCleanupTimer
+    interval: 100
+    repeat: false
+    onTriggered: {
       root.windowDropAnimating = false
       root.windowDragActive = false
       root.windowDragIndex = -1
       root.windowDropWorkspaceId = -1
       root.pendingWindowToplevel = null
       root.pendingWindowWorkspaceId = -1
-      root.moveWindowToWorkspace(toplevel, workspaceId)
     }
   }
 
@@ -921,6 +931,7 @@ Item {
           anchors.bottom: parent.bottom
 
           Repeater {
+            id: windowRepeater
             model: root.windows
 
             Item {
@@ -935,6 +946,36 @@ Item {
               readonly property bool beingDragged: root.windowDragIndex === index
                 && (root.windowDragActive || root.windowDropAnimating)
               z: beingDragged ? 100 : 1
+
+              function animateToWorkspace(workspaceId) {
+                var destination = Math.floor(Number(workspaceId))
+                if (!modelData.toplevel || destination <= 0
+                    || destination === root.selectedWorkspaceId
+                    || root.workspaceIds.indexOf(destination) === -1
+                    || workspaceProcess.running) return false
+
+                var targetIndex = root.workspaceIds.indexOf(destination)
+                var step = workspaceRail.chipWidth + workspaceRail.chipSpacing
+                var targetCenter = workspaceRow.mapToItem(
+                  overview, targetIndex * step + workspaceRail.chipWidth / 2,
+                  workspaceRail.chipHeight / 2)
+                var currentCenter = windowCard.mapToItem(
+                  overview, windowCard.width / 2, windowCard.height / 2)
+
+                root.pendingWindowToplevel = modelData.toplevel
+                root.pendingWindowWorkspaceId = destination
+                root.windowDragIndex = index
+                root.windowDropWorkspaceId = destination
+                root.windowDropAnimating = true
+                root.windowDragActive = false
+                dragOffsetX += targetCenter.x - currentCenter.x
+                dragOffsetY += targetCenter.y - currentCenter.y
+                dragScale = Math.max(0.08, Math.min(
+                  workspaceRail.chipWidth * 0.72 / Math.max(1, windowCard.width),
+                  workspaceRail.chipHeight * 0.72 / Math.max(1, windowCard.height)))
+                windowDropTimer.restart()
+                return true
+              }
               Behavior on dragOffsetX {
                 enabled: root.windowDropAnimating
                 NumberAnimation { duration: 170; easing.type: Easing.InOutCubic }
@@ -1176,33 +1217,15 @@ Item {
                   }
                   onReleased: {
                     var destination = root.windowDropWorkspaceId
-                    if (moved && destination > 0) {
-                      var targetIndex = root.workspaceIds.indexOf(destination)
-                      var step = workspaceRail.chipWidth + workspaceRail.chipSpacing
-                      var targetCenter = workspaceRow.mapToItem(
-                        overview, targetIndex * step + workspaceRail.chipWidth / 2,
-                        workspaceRail.chipHeight / 2)
-                      var currentCenter = windowCard.mapToItem(
-                        overview, windowCard.width / 2, windowCard.height / 2)
+                    if (moved && destination > 0
+                        && windowCell.animateToWorkspace(destination)) return
 
-                      root.pendingWindowToplevel = windowCell.modelData.toplevel
-                      root.pendingWindowWorkspaceId = destination
-                      root.windowDropAnimating = true
-                      root.windowDragActive = false
-                      windowCell.dragOffsetX += targetCenter.x - currentCenter.x
-                      windowCell.dragOffsetY += targetCenter.y - currentCenter.y
-                      windowCell.dragScale = Math.max(0.08, Math.min(
-                        workspaceRail.chipWidth * 0.72 / Math.max(1, windowCard.width),
-                        workspaceRail.chipHeight * 0.72 / Math.max(1, windowCard.height)))
-                      windowDropTimer.restart()
-                    } else {
-                      windowCell.dragOffsetX = 0
-                      windowCell.dragOffsetY = 0
-                      windowCell.dragScale = 1
-                      root.windowDragActive = false
-                      root.windowDragIndex = -1
-                      root.windowDropWorkspaceId = -1
-                    }
+                    windowCell.dragOffsetX = 0
+                    windowCell.dragOffsetY = 0
+                    windowCell.dragScale = 1
+                    root.windowDragActive = false
+                    root.windowDragIndex = -1
+                    root.windowDropWorkspaceId = -1
                   }
                   onCanceled: {
                     windowCell.dragOffsetX = 0
