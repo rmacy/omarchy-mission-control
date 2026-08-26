@@ -559,7 +559,9 @@ Item {
 
       Keys.priority: Keys.BeforeItem
       Keys.onPressed: function(event) {
-        if (event.key === Qt.Key_Escape) {
+        var vimModifiers = event.modifiers === Qt.NoModifier
+          || event.modifiers === Qt.ShiftModifier
+        if (event.key === Qt.Key_Escape || (event.key === Qt.Key_Q && vimModifiers)) {
           root.close()
           event.accepted = true
         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
@@ -575,16 +577,16 @@ Item {
         } else if (event.key === Qt.Key_Right && (event.modifiers & Qt.ShiftModifier)) {
           root.nudgeSelectedWorkspace(1)
           event.accepted = true
-        } else if (event.key === Qt.Key_Left) {
+        } else if (event.key === Qt.Key_Left || (event.key === Qt.Key_H && vimModifiers)) {
           root.moveSelection(-1, 0)
           event.accepted = true
-        } else if (event.key === Qt.Key_Right) {
+        } else if (event.key === Qt.Key_Right || (event.key === Qt.Key_L && vimModifiers)) {
           root.moveSelection(1, 0)
           event.accepted = true
-        } else if (event.key === Qt.Key_Up) {
+        } else if (event.key === Qt.Key_Up || (event.key === Qt.Key_K && vimModifiers)) {
           root.moveSelection(0, -1)
           event.accepted = true
-        } else if (event.key === Qt.Key_Down) {
+        } else if (event.key === Qt.Key_Down || (event.key === Qt.Key_J && vimModifiers)) {
           root.moveSelection(0, 1)
           event.accepted = true
         } else if (event.key >= Qt.Key_1 && event.key <= Qt.Key_9) {
@@ -632,7 +634,7 @@ Item {
 
           Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: "Control + Up  ·  three-finger swipe up  ·  arrows to navigate  ·  Enter to open"
+            text: "Control + Up  ·  three-finger swipe up  ·  arrows or HJKL to navigate  ·  Enter to open"
             color: root.foregroundColor
             opacity: 0.58
             font.family: Style.font.menuFamily

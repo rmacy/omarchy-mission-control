@@ -64,7 +64,7 @@ Inside the overview:
 
 | Input | Action |
 |---|---|
-| Mouse hover or arrow keys | Select a window |
+| Mouse hover, arrow keys, **H/J/K/L** | Select a window |
 | Click or `Enter` | Open the selected window |
 | Click a workspace | Preview that workspace |
 | Double-click a workspace | Switch to that workspace |
@@ -76,7 +76,7 @@ Inside the overview:
 | `Shift + 1` through `Shift + 9` | Move the selected window to that space |
 | `1` through `9` | Preview that numbered workspace when present |
 | `Tab` / `Shift + Tab` | Select next / previous window |
-| `Escape` | Close Mission Control |
+| `Escape` or **Q** | Close Mission Control |
 | Window close button | Ask the application to close that window |
 
 The plugin registers its shortcut and gesture at runtime. If either trigger replaced a user mapping, disabling or removing the plugin reloads Hyprland so the user's configured mapping returns.
