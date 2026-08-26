@@ -16,3 +16,12 @@ run = "/usr/lib/qt6/bin/qmllint -I /usr/share/omarchy/shell MissionControl.qml S
 [tasks.check]
 description = "Run every repository check"
 depends = ["coverage", "lint"]
+
+[tasks.visual-build]
+description = "Build the Wayland input helper for live interaction tests"
+run = "mkdir -p .build && cc -O2 -Wall -Wextra -Werror -o .build/mc-uinput tests/live/mc-uinput.c"
+
+[tasks.visual-test]
+description = "Exercise Mission Control interactions and generate visual evidence"
+depends = ["visual-build"]
+run = "MC_UINPUT=.build/mc-uinput node tests/live/run.mjs"

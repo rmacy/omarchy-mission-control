@@ -426,6 +426,21 @@ Item {
       root.selectedIndex, horizontal, vertical, root.gridColumns, root.windows.length)
   }
 
+  function workspaceNumberForKey(key) {
+    var plain = [
+      Qt.Key_1, Qt.Key_2, Qt.Key_3, Qt.Key_4, Qt.Key_5,
+      Qt.Key_6, Qt.Key_7, Qt.Key_8, Qt.Key_9
+    ]
+    var shifted = [
+      Qt.Key_Exclam, Qt.Key_At, Qt.Key_NumberSign, Qt.Key_Dollar,
+      Qt.Key_Percent, Qt.Key_AsciiCircum, Qt.Key_Ampersand,
+      Qt.Key_Asterisk, Qt.Key_ParenLeft
+    ]
+    var index = plain.indexOf(key)
+    if (index < 0) index = shifted.indexOf(key)
+    return index < 0 ? -1 : index + 1
+  }
+
   function workspaceWindowCount(workspaceId) {
     return WindowModel.visibleToplevels(
       Hyprland.toplevels.values, Number(workspaceId), root.targetMonitorId).length
@@ -448,6 +463,62 @@ Item {
       hyprlandToplevelCount: Hyprland.toplevels.values.length,
       foreignToplevelCount: root.foreignToplevelCount,
       selectedAddress: root.currentSelectedAddress()
+    })
+  }
+
+  function interactionRect(item) {
+    if (!item) return null
+    var point = item.mapToItem(keyScope, 0, 0)
+    return {
+      x: point.x,
+      y: point.y,
+      width: item.width,
+      height: item.height,
+      centerX: point.x + item.width / 2,
+      centerY: point.y + item.height / 2
+    }
+  }
+
+  function interactionGeometry(_argument) {
+    var spaces = []
+    for (var i = 0; i < workspaceRepeater.count; i++) {
+      var space = workspaceRepeater.itemAt(i)
+      if (!space) continue
+      spaces.push({
+        index: i,
+        id: Number(space.modelData),
+        rect: root.interactionRect(space),
+        removeRect: root.interactionRect(space.removeButtonItem)
+      })
+    }
+
+    var windows = []
+    for (var j = 0; j < windowRepeater.count; j++) {
+      var windowItem = windowRepeater.itemAt(j)
+      if (!windowItem) continue
+      windows.push({
+        index: j,
+        address: String(windowItem.modelData.address || ""),
+        rect: root.interactionRect(windowItem.cardItem),
+        closeRect: root.interactionRect(windowItem.closeButtonItem)
+      })
+    }
+
+    return JSON.stringify({
+      open: root.opened,
+      width: keyScope.width,
+      height: keyScope.height,
+      selectedWorkspaceId: root.selectedWorkspaceId,
+      selectedWindowIndex: root.selectedIndex,
+      gridColumns: root.gridColumns,
+      spaceRail: root.interactionRect(workspaceRail),
+      spaces: spaces,
+      addRect: root.interactionRect(addWorkspaceButton),
+      windows: windows,
+      backgroundPoint: {
+        x: Math.max(1, keyScope.width - 4),
+        y: Math.max(1, keyScope.height - 4)
+      }
     })
   }
 
@@ -561,6 +632,7 @@ Item {
       Keys.onPressed: function(event) {
         var vimModifiers = event.modifiers === Qt.NoModifier
           || event.modifiers === Qt.ShiftModifier
+        var workspaceNumber = root.workspaceNumberForKey(event.key)
         if (event.key === Qt.Key_Escape || (event.key === Qt.Key_Q && vimModifiers)) {
           root.close()
           event.accepted = true
@@ -589,8 +661,8 @@ Item {
         } else if (event.key === Qt.Key_Down || (event.key === Qt.Key_J && vimModifiers)) {
           root.moveSelection(0, 1)
           event.accepted = true
-        } else if (event.key >= Qt.Key_1 && event.key <= Qt.Key_9) {
-          var workspaceId = event.key - Qt.Key_0
+        } else if (workspaceNumber > 0) {
+          var workspaceId = workspaceNumber
           if (root.workspaceIds.indexOf(workspaceId) !== -1) {
             if (event.modifiers & Qt.ShiftModifier)
               root.moveSelectedWindowToWorkspace(workspaceId)
@@ -672,12 +744,14 @@ Item {
             spacing: workspaceRail.chipSpacing
 
             Repeater {
+              id: workspaceRepeater
               model: root.workspaceIds
 
               Rectangle {
                 id: workspaceChip
                 required property int modelData
                 required property int index
+                property alias removeButtonItem: removeSpaceButton
                 readonly property bool selected: modelData === root.selectedWorkspaceId
                 readonly property int windowCount: root.workspaceWindowCount(modelData)
                 readonly property bool windowDropTarget: (root.windowDragActive
@@ -846,6 +920,7 @@ Item {
                 }
 
                 Rectangle {
+                  id: removeSpaceButton
                   visible: workspaceChip.hovered && !root.dragActive
                     && !root.windowDragActive && root.workspaceIds.length > 1
                   anchors.top: parent.top
@@ -940,6 +1015,8 @@ Item {
               id: windowCell
               required property var modelData
               required property int index
+              property alias cardItem: windowCard
+              property alias closeButtonItem: closeButton
               readonly property bool selected: index === root.selectedIndex
               property bool hovered: false
               property real dragOffsetX: 0

@@ -105,6 +105,25 @@ mise run check     # coverage gates plus QML validation
 
 The coverage workflow runs on every GitHub push and pull request. Declarative QML is validated with `qmllint` and the live Omarchy smoke scenario rather than being included in Node's V8 coverage denominator.
 
+### Live interaction and visual evidence
+
+Run the compositor-level suite from an active Hyprland session:
+
+```bash
+mise run visual-test
+```
+
+The suite builds a temporary `/dev/uinput` helper, launches isolated `foot` fixture windows, drives keyboard and pointer interactions against the real Mission Control surface, checks Hyprland/workspace/bar state, and restores the original workspace and managed-space file in cleanup.
+
+Evidence is written under `tests/live/output/`:
+
+- `report.json` — machine-readable pass/fail/skip assertions
+- `index.html` — labeled visual gallery
+- `contact-sheet.png` — all scenario screenshots on one review surface
+- individual PNGs for keyboard, pointer, space, window, drag, animation, and bar scenarios
+
+The runner requires write access to `/dev/uinput` plus `foot`, `grim`, ImageMagick, `hyprctl`, and `omarchy-shell`. It refuses to run outside Hyprland or when a prerequisite is missing.
+
 Install a local checkout through the same plugin path used in production:
 
 ```bash
