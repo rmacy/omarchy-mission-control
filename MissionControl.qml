@@ -16,6 +16,9 @@ Item {
   property bool dragActive: false
   property int dragFromIndex: -1
   property int dragTargetIndex: -1
+  property bool windowDragActive: false
+  property int windowDragIndex: -1
+  property int windowDropWorkspaceId: -1
   property var managedWorkspaceIds: []
   property bool spacesLoaded: false
   readonly property string spacesStatePath: Quickshell.env("HOME")
@@ -199,6 +202,9 @@ Item {
     root.opened = false
     root.windows = []
     root.selectedIndex = -1
+    root.windowDragActive = false
+    root.windowDragIndex = -1
+    root.windowDropWorkspaceId = -1
   }
 
   function selectWorkspace(workspaceId) {
@@ -245,11 +251,12 @@ Item {
   function runWorkspaceLua(lua, description) {
     if (workspaceProcess.running) {
       console.warn("bitr0t.mission-control: workspace op still running, skipped " + description)
-      return
+      return false
     }
     workspaceProcess.operation = description
     workspaceProcess.command = ["hyprctl", "eval", lua]
     workspaceProcess.running = true
+    return true
   }
 
   function addWorkspace() {
@@ -366,6 +373,24 @@ Item {
     refreshTimer.restart()
   }
 
+  function moveWindowToWorkspace(toplevel, workspaceId) {
+    var destination = Math.floor(Number(workspaceId))
+    if (!toplevel || destination <= 0 || destination === root.selectedWorkspaceId
+        || root.workspaceIds.indexOf(destination) === -1) return false
+
+    return root.runWorkspaceLua(
+      'hl.dispatch(hl.dsp.window.move({ window = ' + root.windowSelector(toplevel)
+        + ', workspace = ' + root.workspaceSelector(destination)
+        + ', follow = false }))',
+      "move window to space " + destination)
+  }
+
+  function moveSelectedWindowToWorkspace(workspaceId) {
+    if (root.selectedIndex < 0 || root.selectedIndex >= root.windows.length) return false
+    return root.moveWindowToWorkspace(
+      root.windows[root.selectedIndex].toplevel, workspaceId)
+  }
+
   function moveSelection(horizontal, vertical) {
     root.selectedIndex = WindowModel.nextGridIndex(
       root.selectedIndex, horizontal, vertical, root.gridColumns, root.windows.length)
@@ -384,6 +409,11 @@ Item {
       monitor: root.targetMonitorName,
       workspace: root.selectedWorkspaceId,
       workspaceCount: root.workspaceIds.length,
+      workspaceIds: root.workspaceIds,
+      selectedIndex: root.selectedIndex,
+      selectedHasToplevel: root.selectedIndex >= 0
+        && root.selectedIndex < root.windows.length
+        && !!root.windows[root.selectedIndex].toplevel,
       windowCount: root.windows.length,
       hyprlandToplevelCount: Hyprland.toplevels.values.length,
       foreignToplevelCount: root.foreignToplevelCount,
@@ -505,7 +535,10 @@ Item {
         } else if (event.key >= Qt.Key_1 && event.key <= Qt.Key_9) {
           var workspaceId = event.key - Qt.Key_0
           if (root.workspaceIds.indexOf(workspaceId) !== -1) {
-            root.selectWorkspace(workspaceId)
+            if (event.modifiers & Qt.ShiftModifier)
+              root.moveSelectedWindowToWorkspace(workspaceId)
+            else
+              root.selectWorkspace(workspaceId)
             event.accepted = true
           }
         }
@@ -584,17 +617,22 @@ Item {
                 required property int index
                 readonly property bool selected: modelData === root.selectedWorkspaceId
                 readonly property int windowCount: root.workspaceWindowCount(modelData)
+                readonly property bool windowDropTarget: root.windowDragActive
+                  && root.windowDropWorkspaceId === modelData
                 property bool hovered: false
                 property real dragOffset: 0
 
                 width: workspaceRail.chipWidth
                 height: workspaceRail.chipHeight
                 radius: Math.max(Style.cornerRadius - 4, 12)
-                color: selected ? root.selectedColor : Util.alpha(root.backgroundColor, 0.55)
-                border.color: selected ? root.selectedBorderColor : Util.alpha(root.borderColor, 0.7)
-                border.width: selected ? 2 : 1
+                color: windowDropTarget || selected
+                  ? root.selectedColor : Util.alpha(root.backgroundColor, 0.55)
+                border.color: windowDropTarget || selected
+                  ? root.selectedBorderColor : Util.alpha(root.borderColor, 0.7)
+                border.width: windowDropTarget ? 3 : (selected ? 2 : 1)
                 z: root.dragActive && root.dragFromIndex === index ? 20 : 1
-                scale: root.dragActive && root.dragFromIndex === index ? 1.04 : 1
+                scale: windowDropTarget ? 1.06
+                  : (root.dragActive && root.dragFromIndex === index ? 1.04 : 1)
                 transform: Translate { x: workspaceChip.dragOffset }
 
                 Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
@@ -626,6 +664,7 @@ Item {
                 MouseArea {
                   id: workspaceDrag
                   anchors.fill: parent
+                  enabled: !root.windowDragActive
                   hoverEnabled: true
                   cursorShape: root.dragActive ? Qt.ClosedHandCursor : Qt.OpenHandCursor
                   preventStealing: true
@@ -675,7 +714,8 @@ Item {
                 }
 
                 Rectangle {
-                  visible: workspaceChip.hovered && !root.dragActive && root.workspaceIds.length > 1
+                  visible: workspaceChip.hovered && !root.dragActive
+                    && !root.windowDragActive && root.workspaceIds.length > 1
                   anchors.top: parent.top
                   anchors.right: parent.right
                   anchors.margins: 4
@@ -769,6 +809,11 @@ Item {
               required property int index
               readonly property bool selected: index === root.selectedIndex
               property bool hovered: false
+              property real dragOffsetX: 0
+              property real dragOffsetY: 0
+              readonly property bool beingDragged: root.windowDragActive
+                && root.windowDragIndex === index
+              z: beingDragged ? 100 : 1
               readonly property int column: root.gridColumns > 0 ? index % root.gridColumns : 0
               readonly property int row: root.gridColumns > 0 ? Math.floor(index / root.gridColumns) : 0
 
@@ -789,14 +834,20 @@ Item {
                   Math.max(0, parent.height - Math.max(Style.space(8), 8)),
                   Math.max(chromeHeight + 80, (width - Math.max(Style.space(16), 16))
                     / previewAspect + chromeHeight))
+                transform: Translate {
+                  x: windowCell.dragOffsetX
+                  y: windowCell.dragOffsetY
+                }
                 radius: Math.max(Style.cornerRadius, 18)
                 color: windowCell.selected
                   ? Util.alpha(root.selectedColor, 0.92)
                   : Util.alpha(root.backgroundColor, 0.82)
                 border.color: windowCell.selected ? root.selectedBorderColor : root.borderColor
                 border.width: windowCell.selected ? 3 : 1
-                scale: windowCell.selected ? 1 : (windowCell.hovered ? 0.99 : 0.965)
-                opacity: windowCell.selected || windowCell.hovered ? 1 : 0.82
+                scale: windowCell.beingDragged ? 1.04
+                  : (windowCell.selected ? 1 : (windowCell.hovered ? 0.99 : 0.965))
+                opacity: windowCell.beingDragged || windowCell.selected || windowCell.hovered
+                  ? 1 : 0.82
 
                 Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
                 Behavior on opacity { NumberAnimation { duration: 120 } }
@@ -936,15 +987,68 @@ Item {
                 }
 
                 MouseArea {
+                  id: windowDrag
                   anchors.fill: parent
                   hoverEnabled: true
+                  preventStealing: true
+                  cursorShape: windowCell.beingDragged ? Qt.ClosedHandCursor : Qt.OpenHandCursor
                   z: 2
+                  property real pressOverviewX: 0
+                  property real pressOverviewY: 0
+                  property bool moved: false
+
                   onEntered: {
                     windowCell.hovered = true
                     root.selectedIndex = windowCell.index
                   }
-                  onExited: windowCell.hovered = false
-                  onClicked: root.activateSelected()
+                  onExited: if (!windowCell.beingDragged) windowCell.hovered = false
+                  onPressed: function(mouse) {
+                    var point = mapToItem(overview, mouse.x, mouse.y)
+                    pressOverviewX = point.x
+                    pressOverviewY = point.y
+                    moved = false
+                    root.selectedIndex = windowCell.index
+                  }
+                  onPositionChanged: function(mouse) {
+                    if (!pressed) return
+                    var point = mapToItem(overview, mouse.x, mouse.y)
+                    var offsetX = point.x - pressOverviewX
+                    var offsetY = point.y - pressOverviewY
+                    if (!moved && Math.sqrt(offsetX * offsetX + offsetY * offsetY) <= 8) return
+
+                    moved = true
+                    root.windowDragActive = true
+                    root.windowDragIndex = windowCell.index
+                    windowCell.dragOffsetX = offsetX
+                    windowCell.dragOffsetY = offsetY
+
+                    var rowPoint = mapToItem(workspaceRow, mouse.x, mouse.y)
+                    var targetIndex = WindowModel.spaceCardIndexAt(
+                      rowPoint.x, rowPoint.y, root.workspaceIds.length,
+                      workspaceRail.chipWidth, workspaceRail.chipHeight,
+                      workspaceRail.chipSpacing)
+                    var destination = targetIndex >= 0 ? root.workspaceIds[targetIndex] : -1
+                    root.windowDropWorkspaceId = destination === root.selectedWorkspaceId
+                      ? -1 : destination
+                  }
+                  onReleased: {
+                    var destination = root.windowDropWorkspaceId
+                    windowCell.dragOffsetX = 0
+                    windowCell.dragOffsetY = 0
+                    root.windowDragActive = false
+                    root.windowDragIndex = -1
+                    root.windowDropWorkspaceId = -1
+                    if (moved && destination > 0)
+                      root.moveWindowToWorkspace(windowCell.modelData.toplevel, destination)
+                  }
+                  onCanceled: {
+                    windowCell.dragOffsetX = 0
+                    windowCell.dragOffsetY = 0
+                    root.windowDragActive = false
+                    root.windowDragIndex = -1
+                    root.windowDropWorkspaceId = -1
+                  }
+                  onClicked: if (!moved) root.activateSelected()
                 }
               }
             }

@@ -140,6 +140,58 @@ test("picks an adjacent neighbor for workspace removal", () => {
   assert.equal(model.removalNeighbor([1, 2], 9), -1)
 })
 
+test("maps space row pointer hits to card indexes and rejects gaps and out-of-bounds", () => {
+  const width = 144
+  const height = 58
+  const spacing = 10
+
+  // Cards cover [0,144), [154,298), [308,452).
+  assert.equal(model.spaceCardIndexAt(0, 29, 3, width, height, spacing), 0)
+  assert.equal(model.spaceCardIndexAt(72, 0, 3, width, height, spacing), 0)
+  assert.equal(model.spaceCardIndexAt(226, 57.5, 3, width, height, spacing), 1)
+  assert.equal(model.spaceCardIndexAt(308, 29, 3, width, height, spacing), 2)
+  assert.equal(model.spaceCardIndexAt(451.9, 29, 3, width, height, spacing), 2)
+
+  // Gaps between cards and both edges of the row reject.
+  assert.equal(model.spaceCardIndexAt(150, 29, 3, width, height, spacing), -1)
+  assert.equal(model.spaceCardIndexAt(300, 29, 3, width, height, spacing), -1)
+  assert.equal(model.spaceCardIndexAt(460, 29, 3, width, height, spacing), -1)
+  assert.equal(model.spaceCardIndexAt(-0.5, 29, 3, width, height, spacing), -1)
+
+  // Half-open card edges: right edge of any card rejects.
+  assert.equal(model.spaceCardIndexAt(144, 29, 3, width, height, spacing), -1)
+  assert.equal(model.spaceCardIndexAt(452, 29, 3, width, height, spacing), -1)
+  assert.equal(model.spaceCardIndexAt(462, 29, 3, width, height, spacing), -1)
+
+  // Vertical bounds follow the same half-open rule.
+  assert.equal(model.spaceCardIndexAt(72, -1, 3, width, height, spacing), -1)
+  assert.equal(model.spaceCardIndexAt(72, 58, 3, width, height, spacing), -1)
+})
+
+test("rejects empty space rows, degenerate geometry, and invalid coordinates", () => {
+  assert.equal(model.spaceCardIndexAt(72, 29, 0, 144, 58, 10), -1)
+  assert.equal(model.spaceCardIndexAt(72, 29, [], 144, 58, 10), -1)
+  assert.equal(model.spaceCardIndexAt(72, 29, { length: 0 }, 144, 58, 10), -1)
+  assert.equal(model.spaceCardIndexAt(72, 29, -3, 144, 58, 10), -1)
+
+  assert.equal(model.spaceCardIndexAt(72, 29, 3, 0, 58, 10), -1)
+  assert.equal(model.spaceCardIndexAt(72, 29, 3, 144, -1, 10), -1)
+
+  assert.equal(model.spaceCardIndexAt(NaN, 29, 3, 144, 58, 10), -1)
+  assert.equal(model.spaceCardIndexAt(72, undefined, 3, 144, 58, 10), -1)
+})
+
+test("resolves single cards and Quickshell array-like counts", () => {
+  assert.equal(model.spaceCardIndexAt(143, 29, 1, 144, 58, 10), 0)
+  assert.equal(model.spaceCardIndexAt(144, 29, 1, 144, 58, 10), -1)
+  assert.equal(model.spaceCardIndexAt(200, 29, 1, 144, 58, 10), -1)
+
+  const qmlIds = { 0: 1, 1: 2, length: 2 }
+  assert.equal(model.spaceCardIndexAt(0, 29, qmlIds, 144, 58, 10), 0)
+  assert.equal(model.spaceCardIndexAt(160, 29, qmlIds, 144, 58, 10), 1)
+  assert.equal(model.spaceCardIndexAt(150, 29, qmlIds, 144, 58, 10), -1)
+})
+
 test("normalizes titles without breaking short labels", () => {
   assert.equal(model.shortenedTitle("  A   useful title  ", 20), "A useful title")
   assert.equal(model.shortenedTitle("A very long window title", 10), "A very lo…")

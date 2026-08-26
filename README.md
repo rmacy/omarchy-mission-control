@@ -7,7 +7,7 @@ A macOS-style workspace and window overview for Omarchy. It runs inside the exis
 - Live, aspect-correct previews of every window in the selected workspace
 - Adaptive layout for laptop, desktop, and ultrawide displays
 - Space cards with drag-to-reorder, correct renumbering, creation, and removal
-- Mouse, touchpad, and keyboard navigation
+- Drag a window onto a space card to move it to another space
 - Focuses the monitor that was active when the overview opened
 - Uses Omarchy's active colors, typography, and application icons
 - Restores the user's normal Hyprland configuration when disabled or removed
@@ -46,6 +46,8 @@ Inside the overview:
 | Workspace `+` button | Create and switch to a persistent space |
 | Workspace `×` button | Remove a space and move its windows to its neighbor |
 | `Shift + Left` / `Shift + Right` | Reorder the selected workspace |
+| Drag a window onto a space card | Move only that window to the space; the view and focus stay put |
+| `Shift + 1` through `Shift + 9` | Move the selected window to that space |
 | `1` through `9` | Preview that numbered workspace when present |
 | `Tab` / `Shift + Tab` | Select next / previous window |
 | `Escape` | Close Mission Control |

@@ -233,6 +233,25 @@ function remapWorkspaceIds(ids, currentIds, desiredIds) {
   return remapped
 }
 
+function spaceCardIndexAt(x, y, count, cardWidth, cardHeight, cardSpacing) {
+  var numericCount = Math.floor(numberOr(count, 0))
+  var size = numericCount > 0 ? numericCount : valuesOf(count).length
+  var width = numberOr(cardWidth, 0)
+  var height = numberOr(cardHeight, 0)
+  var spacing = Math.max(0, numberOr(cardSpacing, 0))
+  if (size === 0 || width <= 0 || height <= 0) return -1
+
+  var px = Number(x)
+  var py = Number(y)
+  if (!isFinite(px) || !isFinite(py)) return -1
+  if (px < 0 || py < 0 || py >= height) return -1
+
+  var step = width + spacing
+  var slot = Math.floor(px / step)
+  if (slot >= size) return -1
+  return px - slot * step < width ? slot : -1
+}
+
 
 function shortenedTitle(value, limit) {
   var text = String(value || "").replace(/\s+/g, " ").trim()
