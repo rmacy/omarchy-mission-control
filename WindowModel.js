@@ -80,7 +80,7 @@ function visibleToplevels(toplevels, wantedWorkspaceId, wantedMonitorId) {
 
 
 
-function workspaceIds(workspaces, wantedMonitorId, selectedWorkspaceId) {
+function workspaceIds(workspaces, wantedMonitorId, selectedWorkspaceId, managedIds) {
   var source = valuesOf(workspaces)
   var monitor = numberOr(wantedMonitorId, -1)
   var selected = numberOr(selectedWorkspaceId, -1)
@@ -91,8 +91,11 @@ function workspaceIds(workspaces, wantedMonitorId, selectedWorkspaceId) {
   }
 
   include(selected)
-  for (var i = 0; i < source.length; i++) {
-    var workspace = source[i]
+  var managed = valuesOf(managedIds)
+  for (var i = 0; i < managed.length; i++) include(numberOr(managed[i], -1))
+
+  for (var j = 0; j < source.length; j++) {
+    var workspace = source[j]
     if (!workspace) continue
 
     var workspaceMonitor = workspace.monitor
@@ -139,6 +142,95 @@ function nextGridIndex(index, horizontal, vertical, columns, count) {
   var rowStart = targetRow * columnCount
   var rowLength = Math.min(columnCount, size - rowStart)
   return rowStart + Math.min(currentColumn, rowLength - 1)
+}
+
+function nextFreeWorkspaceId(existingIds, cap) {
+  var ceiling = Math.floor(numberOr(cap, 10))
+  if (ceiling < 1) return -1
+
+  var taken = []
+  var source = valuesOf(existingIds)
+  for (var i = 0; i < source.length; i++) {
+    var id = Math.floor(numberOr(source[i], -1))
+    if (id > 0) taken.push(id)
+  }
+
+  for (var candidate = 1; candidate <= ceiling; candidate++) {
+    if (taken.indexOf(candidate) === -1) return candidate
+  }
+  return -1
+}
+
+function moveArrayValue(values, from, to) {
+  var size = valuesOf(values).length
+  var source = Math.floor(numberOr(from, -1))
+  var target = Math.floor(numberOr(to, -1))
+  if (size === 0 || source < 0 || source >= size || target < 0 || target >= size
+    || source === target) return null
+
+  var next = []
+  for (var i = 0; i < size; i++) next.push(values[i])
+  var moved = next.splice(source, 1)[0]
+  next.splice(target, 0, moved)
+  return next
+}
+
+function reassignPlan(currentIds, desiredIds, tempBase, existingIds) {
+  var current = valuesOf(currentIds)
+  var desired = valuesOf(desiredIds)
+  if (current.length === 0 || current.length !== desired.length) return []
+
+  var base = Math.floor(numberOr(tempBase, 0))
+  if (base <= 0) return []
+
+  var existing = existingIds === undefined ? desired : valuesOf(existingIds)
+  var phase = []
+  var seen = []
+  for (var i = 0; i < existing.length; i++) {
+    var workspace = numberOr(existing[i], -1)
+    if (workspace <= 0 || seen.indexOf(workspace) !== -1) continue
+    seen.push(workspace)
+
+    var position = desired.indexOf(workspace)
+    if (position < 0) continue
+    var targetId = numberOr(current[position], -1)
+    if (targetId <= 0 || targetId === workspace) continue
+    phase.push({ workspace: workspace, temporaryId: base + phase.length, targetId: targetId })
+  }
+
+  var moves = []
+  for (var j = 0; j < phase.length; j++)
+    moves.push({ workspace: phase[j].workspace, id: phase[j].temporaryId })
+  for (var k = 0; k < phase.length; k++)
+    moves.push({ workspace: phase[k].temporaryId, id: phase[k].targetId })
+  return moves
+}
+
+function removalNeighbor(ids, removedId) {
+  var source = valuesOf(ids)
+  if (source.length < 2) return -1
+
+  var index = source.indexOf(Math.floor(numberOr(removedId, -1)))
+  if (index === -1) return -1
+  return index > 0 ? numberOr(source[index - 1], -1) : numberOr(source[1], -1)
+}
+
+function remapWorkspaceIds(ids, currentIds, desiredIds) {
+  var source = valuesOf(ids)
+  var current = valuesOf(currentIds)
+  var desired = valuesOf(desiredIds)
+  if (current.length === 0 || current.length !== desired.length) return []
+
+  var remapped = []
+  for (var i = 0; i < source.length; i++) {
+    var oldId = numberOr(source[i], -1)
+    var position = desired.indexOf(oldId)
+    if (position < 0) continue
+    var newId = numberOr(current[position], -1)
+    if (newId > 0 && remapped.indexOf(newId) === -1) remapped.push(newId)
+  }
+  remapped.sort(function(left, right) { return left - right })
+  return remapped
 }
 
 

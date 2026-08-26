@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
 import "WindowModel.js" as WindowModel
@@ -12,7 +13,13 @@ Item {
   property var manifest: null
   readonly property var appLibrary: root.shell ? root.shell.appLibrary : null
   readonly property int foreignToplevelCount: ToplevelManager.toplevels.values.length
-
+  property bool dragActive: false
+  property int dragFromIndex: -1
+  property int dragTargetIndex: -1
+  property var managedWorkspaceIds: []
+  property bool spacesLoaded: false
+  readonly property string spacesStatePath: Quickshell.env("HOME")
+    + "/.local/state/omarchy/mission-control-spaces.json"
   property bool opened: false
   property real revealProgress: 0
   property int targetMonitorId: -1
@@ -138,11 +145,14 @@ Item {
 
   function refreshOverview() {
     var preferredAddress = root.currentSelectedAddress()
-    root.workspaceIds = WindowModel.workspaceIds(
-      Hyprland.workspaces.values, root.targetMonitorId, root.selectedWorkspaceId)
+    if (!root.dragActive) {
+      root.workspaceIds = WindowModel.workspaceIds(
+        Hyprland.workspaces.values, root.targetMonitorId, root.selectedWorkspaceId,
+        root.managedWorkspaceIds)
 
-    if (root.workspaceIds.indexOf(root.selectedWorkspaceId) === -1)
-      root.selectedWorkspaceId = root.workspaceIds.length > 0 ? root.workspaceIds[0] : -1
+      if (root.workspaceIds.indexOf(root.selectedWorkspaceId) === -1)
+        root.selectedWorkspaceId = root.workspaceIds.length > 0 ? root.workspaceIds[0] : -1
+    }
 
     root.refreshWindows(preferredAddress)
   }
@@ -197,6 +207,129 @@ Item {
     root.selectedWorkspaceId = nextId
     root.refreshWindows("")
     keyScope.forceActiveFocus()
+  }
+
+  function workspaceSelector(workspaceId) {
+    return '"' + Math.floor(Number(workspaceId)) + '"'
+  }
+
+  function windowSelector(toplevel) {
+    var address = WindowModel.stableAddress(toplevel)
+    if (address && address.slice(0, 2).toLowerCase() !== "0x") address = "0x" + address
+    return '"address:' + address + '"'
+  }
+
+  function loadManagedSpaces(raw) {
+    var values = []
+    try {
+      var parsed = JSON.parse(String(raw || "[]"))
+      if (Array.isArray(parsed)) values = parsed
+    } catch (_error) { }
+    root.saveManagedSpaces(values)
+  }
+
+  function saveManagedSpaces(values) {
+    var next = []
+    var source = Array.isArray(values) ? values : []
+    for (var i = 0; i < source.length; i++) {
+      var id = Math.floor(Number(source[i]))
+      if (id > 0 && id <= 10 && next.indexOf(id) === -1) next.push(id)
+    }
+    next.sort(function(left, right) { return left - right })
+    root.managedWorkspaceIds = next
+    root.spacesLoaded = true
+    spacesStateFile.setText(JSON.stringify(next) + "\n")
+    if (root.opened) root.refreshOverview()
+  }
+
+  function runWorkspaceLua(lua, description) {
+    if (workspaceProcess.running) {
+      console.warn("bitr0t.mission-control: workspace op still running, skipped " + description)
+      return
+    }
+    workspaceProcess.operation = description
+    workspaceProcess.command = ["hyprctl", "eval", lua]
+    workspaceProcess.running = true
+  }
+
+  function addWorkspace() {
+    var nextId = WindowModel.nextFreeWorkspaceId(root.workspaceIds, 10)
+    if (nextId <= 0) return
+
+    var nextManaged = root.managedWorkspaceIds.slice()
+    nextManaged.push(nextId)
+    root.saveManagedSpaces(nextManaged)
+    runWorkspaceLua(
+      'hl.dispatch(hl.dsp.focus({ workspace = ' + root.workspaceSelector(nextId) + ' }))',
+      "add workspace")
+    root.selectWorkspace(nextId)
+  }
+
+  function removeWorkspace(workspaceId) {
+    var removedId = Math.floor(Number(workspaceId))
+    var neighbor = WindowModel.removalNeighbor(root.workspaceIds, removedId)
+    if (removedId <= 0 || neighbor <= 0) return
+
+    var nextManaged = []
+    for (var i = 0; i < root.managedWorkspaceIds.length; i++) {
+      if (root.managedWorkspaceIds[i] !== removedId)
+        nextManaged.push(root.managedWorkspaceIds[i])
+    }
+    root.saveManagedSpaces(nextManaged)
+
+    var lua = [
+      'hl.dispatch(hl.dsp.focus({ workspace = ' + root.workspaceSelector(neighbor) + ' }))'
+    ]
+    var handles = WindowModel.visibleToplevels(
+      Hyprland.toplevels.values, removedId, root.targetMonitorId)
+    for (var j = 0; j < handles.length; j++) {
+      lua.push('hl.dispatch(hl.dsp.window.move({ window = ' + root.windowSelector(handles[j])
+        + ', workspace = ' + root.workspaceSelector(neighbor) + ', follow = false }))')
+    }
+
+    runWorkspaceLua(lua.join("\n"), "remove workspace " + removedId)
+    if (root.selectedWorkspaceId === removedId) root.selectedWorkspaceId = neighbor
+  }
+
+  function commitReorder(fromIndex, toIndex) {
+    if (fromIndex === toIndex) return
+    var currentIds = root.workspaceIds
+    var desiredIds = WindowModel.moveArrayValue(currentIds, fromIndex, toIndex)
+    if (!desiredIds) return
+
+    var maxId = 0
+    for (var i = 0; i < currentIds.length; i++)
+      maxId = Math.max(maxId, Math.floor(Number(currentIds[i]) || 0))
+
+    var actualIds = WindowModel.workspaceIds(
+      Hyprland.workspaces.values, root.targetMonitorId, -1, [])
+    var moves = WindowModel.reassignPlan(
+      currentIds, desiredIds, 1000 + maxId, actualIds)
+    if (moves.length > 0) {
+      var lua = []
+      for (var j = 0; j < moves.length; j++) {
+        lua.push('hl.dispatch(hl.dsp.workspace.change_id({ workspace = '
+          + root.workspaceSelector(moves[j].workspace) + ', id = '
+          + Math.floor(moves[j].id) + ' }))')
+      }
+      runWorkspaceLua(lua.join("\n"), "reorder workspaces")
+    }
+
+    root.saveManagedSpaces(WindowModel.remapWorkspaceIds(
+      root.managedWorkspaceIds, currentIds, desiredIds))
+    var selectedPosition = desiredIds.indexOf(root.selectedWorkspaceId)
+    if (selectedPosition >= 0) {
+      root.selectedWorkspaceId = currentIds[selectedPosition]
+      root.refreshWindows("")
+    }
+  }
+
+  function nudgeSelectedWorkspace(direction) {
+    var index = root.workspaceIds.indexOf(root.selectedWorkspaceId)
+    if (index < 0) return
+    var target = index + (Number(direction) < 0 ? -1 : 1)
+    if (target < 0 || target >= root.workspaceIds.length) return
+    root.commitReorder(index, target)
   }
 
   function activateWorkspace() {
@@ -280,11 +413,41 @@ Item {
   }
 
 
+  FileView {
+    id: spacesStateFile
+    path: root.spacesStatePath
+    watchChanges: false
+    printErrors: false
+    atomicWrites: true
+    onLoaded: if (!root.spacesLoaded) root.loadManagedSpaces(text())
+    onLoadFailed: {
+      root.spacesLoaded = true
+      if (root.opened) root.refreshOverview()
+    }
+  }
+
   Timer {
     id: refreshTimer
     interval: 45
     repeat: false
     onTriggered: if (root.opened) root.refreshOverview()
+  }
+
+  Process {
+    id: workspaceProcess
+    property string operation: ""
+    stdout: StdioCollector { id: workspaceStdout; waitForEnd: true }
+    stderr: StdioCollector { id: workspaceStderr; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode !== 0) {
+        var detail = String(workspaceStdout.text || workspaceStderr.text || "").trim()
+        console.warn("bitr0t.mission-control: failed to " + operation
+          + " (exit " + exitCode + ")" + (detail ? ": " + detail : ""))
+      }
+      Hyprland.refreshWorkspaces()
+      Hyprland.refreshToplevels()
+      refreshTimer.restart()
+    }
   }
 
   PanelWindow {
@@ -320,6 +483,12 @@ Item {
         } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
           var reverse = event.key === Qt.Key_Backtab || !!(event.modifiers & Qt.ShiftModifier)
           root.moveSelection(reverse ? -1 : 1, 0)
+          event.accepted = true
+        } else if (event.key === Qt.Key_Left && (event.modifiers & Qt.ShiftModifier)) {
+          root.nudgeSelectedWorkspace(-1)
+          event.accepted = true
+        } else if (event.key === Qt.Key_Right && (event.modifiers & Qt.ShiftModifier)) {
+          root.nudgeSelectedWorkspace(1)
           event.accepted = true
         } else if (event.key === Qt.Key_Left) {
           root.moveSelection(-1, 0)
@@ -385,11 +554,15 @@ Item {
 
         Rectangle {
           id: workspaceRail
+          readonly property real chipWidth: Math.max(Style.space(116), 144)
+          readonly property real chipHeight: Math.max(Style.space(50), 58)
+          readonly property real chipSpacing: Math.max(Style.spacing.sm, 10)
+
           anchors.top: heading.bottom
           anchors.topMargin: Math.max(Style.space(18), 18)
           anchors.horizontalCenter: parent.horizontalCenter
           width: Math.min(parent.width, workspaceRow.implicitWidth + Math.max(Style.space(20), 20) * 2)
-          height: Math.max(Style.space(58), 58)
+          height: chipHeight + Math.max(Style.space(18), 18)
           radius: Math.max(Style.cornerRadius, 18)
           color: Util.alpha(root.backgroundColor, 0.88)
           border.color: root.borderColor
@@ -400,7 +573,7 @@ Item {
           Row {
             id: workspaceRow
             anchors.centerIn: parent
-            spacing: Math.max(Style.spacing.sm, 8)
+            spacing: workspaceRail.chipSpacing
 
             Repeater {
               model: root.workspaceIds
@@ -408,34 +581,174 @@ Item {
               Rectangle {
                 id: workspaceChip
                 required property int modelData
+                required property int index
                 readonly property bool selected: modelData === root.selectedWorkspaceId
                 readonly property int windowCount: root.workspaceWindowCount(modelData)
+                property bool hovered: false
+                property real dragOffset: 0
 
-                width: Math.max(Style.space(92), 116)
-                height: Math.max(Style.space(38), 38)
-                radius: height / 2
-                color: selected ? root.selectedColor : "transparent"
+                width: workspaceRail.chipWidth
+                height: workspaceRail.chipHeight
+                radius: Math.max(Style.cornerRadius - 4, 12)
+                color: selected ? root.selectedColor : Util.alpha(root.backgroundColor, 0.55)
                 border.color: selected ? root.selectedBorderColor : Util.alpha(root.borderColor, 0.7)
                 border.width: selected ? 2 : 1
+                z: root.dragActive && root.dragFromIndex === index ? 20 : 1
+                scale: root.dragActive && root.dragFromIndex === index ? 1.04 : 1
+                transform: Translate { x: workspaceChip.dragOffset }
 
-                Text {
+                Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+
+                Column {
                   anchors.centerIn: parent
-                  text: "Space " + workspaceChip.modelData + "  ·  " + workspaceChip.windowCount
-                  color: workspaceChip.selected ? root.selectedTextColor : root.foregroundColor
-                  opacity: workspaceChip.selected ? 1 : 0.72
-                  font.family: Style.font.menuFamily
-                  font.pixelSize: Style.font.caption
-                  font.weight: workspaceChip.selected ? Font.DemiBold : Font.Medium
+                  spacing: 1
+
+                  Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "Space " + workspaceChip.modelData
+                    color: workspaceChip.selected ? root.selectedTextColor : root.foregroundColor
+                    font.family: Style.font.menuFamily
+                    font.pixelSize: Style.font.body
+                    font.weight: Font.DemiBold
+                  }
+
+                  Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: workspaceChip.windowCount === 1
+                      ? "1 window" : workspaceChip.windowCount + " windows"
+                    color: workspaceChip.selected ? root.selectedTextColor : root.foregroundColor
+                    opacity: 0.55
+                    font.family: Style.font.menuFamily
+                    font.pixelSize: Style.font.caption
+                  }
                 }
 
                 MouseArea {
+                  id: workspaceDrag
                   anchors.fill: parent
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.selectWorkspace(workspaceChip.modelData)
-                  onDoubleClicked: root.activateWorkspace()
+                  hoverEnabled: true
+                  cursorShape: root.dragActive ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                  preventStealing: true
+                  property real pressRowX: 0
+                  property bool moved: false
+
+                  onEntered: workspaceChip.hovered = true
+                  onExited: workspaceChip.hovered = false
+                  onPressed: function(mouse) {
+                    var point = mapToItem(workspaceRow, mouse.x, mouse.y)
+                    pressRowX = point.x
+                    moved = false
+                    root.dragActive = true
+                    root.dragFromIndex = workspaceChip.index
+                    root.dragTargetIndex = workspaceChip.index
+                  }
+                  onPositionChanged: function(mouse) {
+                    if (!pressed) return
+                    var point = mapToItem(workspaceRow, mouse.x, mouse.y)
+                    workspaceChip.dragOffset = point.x - pressRowX
+                    if (Math.abs(workspaceChip.dragOffset) > 6) moved = true
+
+                    var step = workspaceRail.chipWidth + workspaceRail.chipSpacing
+                    var target = Math.round((workspaceChip.x + workspaceChip.dragOffset) / step)
+                    root.dragTargetIndex = Math.max(0, Math.min(root.workspaceIds.length - 1, target))
+                  }
+                  onReleased: {
+                    var from = root.dragFromIndex
+                    var to = root.dragTargetIndex
+                    workspaceChip.dragOffset = 0
+                    root.dragActive = false
+                    root.dragFromIndex = -1
+                    root.dragTargetIndex = -1
+                    if (moved) root.commitReorder(from, to)
+                  }
+                  onCanceled: {
+                    workspaceChip.dragOffset = 0
+                    root.dragActive = false
+                    root.dragFromIndex = -1
+                    root.dragTargetIndex = -1
+                  }
+                  onClicked: if (!moved) root.selectWorkspace(workspaceChip.modelData)
+                  onDoubleClicked: if (!moved) {
+                    root.selectWorkspace(workspaceChip.modelData)
+                    root.activateWorkspace()
+                  }
+                }
+
+                Rectangle {
+                  visible: workspaceChip.hovered && !root.dragActive && root.workspaceIds.length > 1
+                  anchors.top: parent.top
+                  anchors.right: parent.right
+                  anchors.margins: 4
+                  width: 22
+                  height: 22
+                  radius: width / 2
+                  color: Util.alpha(root.scrimColor, 0.92)
+                  border.color: Util.alpha(root.borderColor, 0.8)
+                  border.width: 1
+                  z: 30
+
+                  Text {
+                    anchors.centerIn: parent
+                    text: "×"
+                    color: root.foregroundColor
+                    font.pixelSize: Style.font.body
+                    font.weight: Font.DemiBold
+                  }
+
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: function(mouse) {
+                      mouse.accepted = true
+                      root.removeWorkspace(workspaceChip.modelData)
+                    }
+                  }
                 }
               }
             }
+
+            Rectangle {
+              id: addWorkspaceButton
+              visible: root.workspaceIds.length < 10
+              width: workspaceRail.chipHeight
+              height: workspaceRail.chipHeight
+              radius: Math.max(Style.cornerRadius - 4, 12)
+              color: "transparent"
+              border.color: Util.alpha(root.borderColor, 0.8)
+              border.width: 1
+
+              Text {
+                anchors.centerIn: parent
+                text: "+"
+                color: root.foregroundColor
+                opacity: 0.72
+                font.family: Style.font.menuFamily
+                font.pixelSize: Math.max(Style.font.display, 26)
+                font.weight: Font.Light
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.addWorkspace()
+              }
+            }
+          }
+
+          Rectangle {
+            visible: root.dragActive && root.dragTargetIndex >= 0
+              && root.dragTargetIndex !== root.dragFromIndex
+            x: workspaceRow.x + root.dragTargetIndex
+              * (workspaceRail.chipWidth + workspaceRail.chipSpacing)
+              + (root.dragTargetIndex > root.dragFromIndex
+                ? workspaceRail.chipWidth + workspaceRail.chipSpacing / 2
+                : -workspaceRail.chipSpacing / 2)
+            anchors.verticalCenter: workspaceRow.verticalCenter
+            width: 3
+            height: workspaceRail.chipHeight - 8
+            radius: width / 2
+            color: root.selectedBorderColor
+            z: 40
           }
         }
 

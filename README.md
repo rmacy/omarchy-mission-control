@@ -6,7 +6,7 @@ A macOS-style workspace and window overview for Omarchy. It runs inside the exis
 
 - Live, aspect-correct previews of every window in the selected workspace
 - Adaptive layout for laptop, desktop, and ultrawide displays
-- Workspace rail with window counts
+- Space cards with drag-to-reorder, correct renumbering, creation, and removal
 - Mouse, touchpad, and keyboard navigation
 - Focuses the monitor that was active when the overview opened
 - Uses Omarchy's active colors, typography, and application icons
@@ -42,12 +42,18 @@ Inside the overview:
 | Click or `Enter` | Open the selected window |
 | Click a workspace | Preview that workspace |
 | Double-click a workspace | Switch to that workspace |
+| Drag a workspace | Reorder spaces; Hyprland IDs are renumbered to match |
+| Workspace `+` button | Create and switch to a persistent space |
+| Workspace `×` button | Remove a space and move its windows to its neighbor |
+| `Shift + Left` / `Shift + Right` | Reorder the selected workspace |
 | `1` through `9` | Preview that numbered workspace when present |
 | `Tab` / `Shift + Tab` | Select next / previous window |
 | `Escape` | Close Mission Control |
 | Window close button | Ask the application to close that window |
 
 The plugin registers its shortcut and gesture at runtime. If either trigger replaced a user mapping, disabling or removing the plugin reloads Hyprland so the user's configured mapping returns.
+
+Mission Control remembers managed spaces in `~/.local/state/omarchy/mission-control-spaces.json` and recreates empty ones on demand. It supports spaces 1 through 10, matching Omarchy's workspace conventions. Removing the final remaining space is disabled.
 
 ## Update or remove
 
