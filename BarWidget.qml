@@ -68,6 +68,33 @@ BarWidget {
     root.bar.run("hyprctl dispatch " + Util.shellQuote("hl.dsp.focus({ workspace = \"" + id + "\" })"))
   }
 
+  function interactionRect(item) {
+    if (!item) return null
+    var point = item.mapToGlobal(0, 0)
+    return {
+      x: point.x,
+      y: point.y,
+      width: item.width,
+      height: item.height,
+      centerX: point.x + item.width / 2,
+      centerY: point.y + item.height / 2
+    }
+  }
+
+  function interactionGeometry() {
+    var spaces = []
+    for (var i = 0; i < workspaceButtons.count; i++) {
+      var button = workspaceButtons.itemAt(i)
+      if (!button) continue
+      spaces.push({
+        index: i,
+        id: Number(button.modelData),
+        rect: root.interactionRect(button)
+      })
+    }
+    return JSON.stringify({ spaces: spaces })
+  }
+
   readonly property real trailingGap: root.vertical ? 0 : Style.spaceReal(1.5)
 
   visible: spaceIds.length > 0
@@ -83,6 +110,7 @@ BarWidget {
     rowSpacing: root.vertical ? Style.space(2) : 0
 
     Repeater {
+      id: workspaceButtons
       model: root.spaceIds
 
       WidgetButton {
@@ -112,5 +140,10 @@ BarWidget {
     onLoaded: root.loadManagedSpaces(text())
     onLoadFailed: if (root.managedIds.length > 0) root.managedIds = []
     onFileChanged: reload()
+  }
+
+  IpcHandler {
+    target: "bitr0t-mission-control-spaces"
+    function geometry(): string { return root.interactionGeometry() }
   }
 }

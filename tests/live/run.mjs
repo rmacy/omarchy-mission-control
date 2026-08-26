@@ -48,19 +48,39 @@ async function jsonCommand(program, args) {
 }
 
 async function shellCall(method, argument = "{}") {
-  const { stdout } = await command("omarchy-shell", ["shell", "call", "bitr0t.mission-control", method, String(argument)])
-  const value = stdout.trim()
-  if (value === "error" || value === "unknown" || value === "unloaded")
-    throw new Error(`Mission Control ${method} returned ${value}`)
-  return value
+  let lastError = null
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    try {
+      const { stdout } = await command("omarchy-shell", [
+        "shell", "call", "bitr0t.mission-control", method, String(argument)
+      ])
+      const value = stdout.trim()
+      if (value === "error" || value === "unknown" || value === "unloaded")
+        throw new Error(`Mission Control ${method} returned ${value}`)
+      return value
+    } catch (error) {
+      lastError = error
+      if (!String(error.message).includes("not responding")) throw error
+      await sleep(250)
+    }
+  }
+  throw lastError
 }
-
 async function status() {
   return JSON.parse(await shellCall("status"))
 }
 
 async function geometry() {
   return JSON.parse(await shellCall("interactionGeometry"))
+}
+
+async function barGeometry() {
+  const { stdout } = await command("omarchy-shell", [
+    "bitr0t-mission-control-spaces", "geometry"
+  ])
+  const value = stdout.trim()
+  if (!value || value === "error") throw new Error(`bar geometry returned ${value || "empty output"}`)
+  return JSON.parse(value)
 }
 
 async function waitFor(probe, timeout = 12000, interval = 80) {
@@ -128,6 +148,26 @@ async function injectUntilOpen(args, attempts = 3) {
     await ensureClosed().catch(() => {})
     await sleep(250)
   }
+  return null
+}
+
+async function selectionInteraction(name, inputArgs, slug) {
+  let before = await ensureOpen(fixtureA)
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await input(...inputArgs)
+    const after = await waitFor(async () => {
+      const value = await status()
+      return value.open && value.selectedIndex >= 0
+        && value.selectedIndex !== before.selectedIndex ? value : null
+    }, 2500).catch(() => null)
+    if (after) {
+      record(name, true, `${before.selectedIndex} -> ${after.selectedIndex}`,
+        await capture(slug, name))
+      return after
+    }
+    before = await ensureOpen(fixtureA)
+  }
+  record(name, false, `selection stayed ${before.selectedIndex}`, await capture(slug, name))
   return null
 }
 
@@ -351,39 +391,21 @@ async function main() {
 
   // Keyboard matrix.
   await focusWorkspace(fixtureA)
-  let current = await ensureOpen()
-  const firstIndex = current.selectedIndex
-  await input("key", "l")
-  let next = await status()
-  record("Vim L selects right", next.selectedIndex !== firstIndex, `${firstIndex} -> ${next.selectedIndex}`, await capture("vim-l", "Vim L"))
-  const afterL = next.selectedIndex
-  await input("key", "h")
-  next = await status()
-  record("Vim H selects left", next.selectedIndex !== afterL, `${afterL} -> ${next.selectedIndex}`,
-    await capture("vim-h", "Vim H"))
-  const beforeJ = next.selectedIndex
-  await input("key", "j")
-  next = await status()
-  record("Vim J selects down", next.selectedIndex !== beforeJ, `${beforeJ} -> ${next.selectedIndex}`,
-    await capture("vim-j", "Vim J"))
-  const beforeK = next.selectedIndex
-  await input("key", "k")
-  next = await status()
-  record("Vim K selects up", next.selectedIndex !== beforeK, `${beforeK} -> ${next.selectedIndex}`,
-    await capture("vim-k", "Vim K"))
-
-  for (const [key, label] of [["right", "Right arrow"], ["left", "Left arrow"], ["down", "Down arrow"], ["up", "Up arrow"], ["tab", "Tab"]]) {
-    const before = (await status()).selectedIndex
-    await input("key", key)
-    const after = (await status()).selectedIndex
-    record(`${label} changes selection`, after !== before, `${before} -> ${after}`,
-      await capture(`key-${key}`, label))
+  await selectionInteraction("Vim L selects right", ["key", "l"], "vim-l")
+  await selectionInteraction("Vim H selects left", ["key", "h"], "vim-h")
+  await selectionInteraction("Vim J selects down", ["key", "j"], "vim-j")
+  await selectionInteraction("Vim K selects up", ["key", "k"], "vim-k")
+  for (const [key, label] of [
+    ["right", "Right arrow"],
+    ["left", "Left arrow"],
+    ["down", "Down arrow"],
+    ["up", "Up arrow"],
+    ["tab", "Tab"]
+  ]) {
+    await selectionInteraction(`${label} changes selection`, ["key", key], `key-${key}`)
   }
-  let before = (await status()).selectedIndex
-  await input("chord", "shift", "tab")
-  let after = (await status()).selectedIndex
-  record("Shift+Tab changes selection in reverse", after !== before, `${before} -> ${after}`,
-    await capture("shift-tab", "Shift+Tab"))
+  await selectionInteraction("Shift+Tab changes selection in reverse",
+    ["chord", "shift", "tab"], "shift-tab")
 
   await input("key", "q")
   record("Q closes Mission Control", await waitFor(async () => !(await status()).open), "closed", await capture("vim-q-close", "Q closes"))
@@ -418,6 +440,31 @@ async function main() {
     `${movedAddress} -> ${fixtureB}, focus stayed ${activeAfterMove}`, await capture("shift-number-move", "Shift+number moves window"))
   await moveWindow(movedAddress, fixtureA)
 
+  const keyboardAddressA = (await fixtureClients())
+    .find(client => client.workspace.id === fixtureA)?.address
+  const keyboardAddressB = (await fixtureClients())
+    .find(client => client.workspace.id === fixtureB)?.address
+  await focusWorkspace(fixtureA)
+  await ensureOpen(fixtureA)
+  await input("chord", "shift", "left")
+  const keyboardSwap = await waitFor(async () => {
+    const movedA = keyboardAddressA ? await clientByAddress(keyboardAddressA) : null
+    const movedB = keyboardAddressB ? await clientByAddress(keyboardAddressB) : null
+    return movedA?.workspace?.id === fixtureB && movedB?.workspace?.id === fixtureA
+  })
+  record("Shift+Left reorders selected space", keyboardSwap,
+    `A -> ${fixtureB}, B -> ${fixtureA}`,
+    await capture("shift-left-space-reorder", "Shift+Left space reorder"))
+  await input("chord", "shift", "right")
+  const keyboardRestore = await waitFor(async () => {
+    const movedA = keyboardAddressA ? await clientByAddress(keyboardAddressA) : null
+    const movedB = keyboardAddressB ? await clientByAddress(keyboardAddressB) : null
+    return movedA?.workspace?.id === fixtureA && movedB?.workspace?.id === fixtureB
+  })
+  record("Shift+Right restores selected space position", keyboardRestore,
+    `A -> ${fixtureA}, B -> ${fixtureB}`,
+    await capture("shift-right-space-restore", "Shift+Right space restore"))
+
   // Pointer geometry and background close.
   await ensureOpen()
   let geo = await geometry()
@@ -445,6 +492,18 @@ async function main() {
   const doubleWorkspace = (await jsonCommand("hyprctl", ["-j", "activeworkspace"])).id
   record("Space double-click switches and closes", doubleClosed && doubleWorkspace === fixtureA,
     `active ${doubleWorkspace}`, await capture("space-double-click", "Space double-click"))
+
+  const barGeo = await barGeometry()
+  const barTarget = barGeo.spaces.find(space => space.id === fixtureB)
+  const barOrigin = barGeo.spaces.find(space => space.id === fixtureA)
+  await clickRect(barTarget.rect)
+  const barFocused = await waitFor(async () =>
+    (await jsonCommand("hyprctl", ["-j", "activeworkspace"])).id === fixtureB)
+  record("Dynamic bar click focuses space", barFocused, `active ${fixtureB}`,
+    await capture("bar-click", "Dynamic bar workspace click"))
+  await clickRect(barOrigin.rect)
+  await waitFor(async () =>
+    (await jsonCommand("hyprctl", ["-j", "activeworkspace"])).id === fixtureA)
 
   // Add and remove controls, including bar state.
   await ensureOpen()
