@@ -77,6 +77,50 @@ function visibleToplevels(toplevels, wantedWorkspaceId, wantedMonitorId) {
   return result
 }
 
+function desktopToplevels(toplevels, wantedWorkspaceId, wantedMonitorId) {
+  var source = valuesOf(toplevels)
+  var workspace = numberOr(wantedWorkspaceId, -1)
+  var monitor = numberOr(wantedMonitorId, -1)
+  var result = []
+
+  for (var i = 0; i < source.length; i++) {
+    var toplevel = source[i]
+    if (!isVisibleToplevel(toplevel) || monitorId(toplevel) !== monitor) continue
+    if (workspaceId(toplevel) !== workspace && metadata(toplevel).pinned !== true) continue
+    result.push(toplevel)
+  }
+
+  result.sort(function(left, right) {
+    var byHistory = historyRank(right) - historyRank(left)
+    if (byHistory !== 0) return byHistory
+    var leftAddress = stableAddress(left)
+    var rightAddress = stableAddress(right)
+    return leftAddress < rightAddress ? -1 : (leftAddress > rightAddress ? 1 : 0)
+  })
+  return result
+}
+
+function workspaceThumbnailRect(toplevel, monitor, frameWidth, frameHeight) {
+  var data = metadata(toplevel)
+  var at = valuesOf(data.at)
+  var size = valuesOf(data.size)
+  var monitorWidth = numberOr(monitor && monitor.width, 0)
+  var monitorHeight = numberOr(monitor && monitor.height, 0)
+  var width = numberOr(frameWidth, 0)
+  var height = numberOr(frameHeight, 0)
+  if (at.length < 2 || size.length < 2 || monitorWidth <= 0 || monitorHeight <= 0
+      || width <= 0 || height <= 0) return null
+
+  var scaleX = width / monitorWidth
+  var scaleY = height / monitorHeight
+  return {
+    x: (numberOr(at[0], 0) - numberOr(monitor && monitor.x, 0)) * scaleX,
+    y: (numberOr(at[1], 0) - numberOr(monitor && monitor.y, 0)) * scaleY,
+    width: Math.max(1, numberOr(size[0], 1) * scaleX),
+    height: Math.max(1, numberOr(size[1], 1) * scaleY)
+  }
+}
+
 
 
 
@@ -101,7 +145,7 @@ function workspaceIds(workspaces, wantedMonitorId, selectedWorkspaceId, managedI
     var workspaceMonitor = workspace.monitor
       ? numberOr(workspace.monitor.id, -1)
       : numberOr(workspace.lastIpcObject && workspace.lastIpcObject.monitor, -1)
-    if (workspaceMonitor !== monitor) continue
+    if (monitor >= 0 && workspaceMonitor !== monitor) continue
     include(numberOr(workspace.id, -1))
   }
 

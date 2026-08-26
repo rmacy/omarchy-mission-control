@@ -51,6 +51,37 @@ test("accepts Quickshell's array-like object models", () => {
   )
 })
 
+test("builds back-to-front desktop stacks and includes pinned windows", () => {
+  const windows = [
+    toplevel("0x1", 1, 7, 0),
+    toplevel("0x2", 1, 7, 3),
+    toplevel("0x3", 2, 7, 1, { pinned: true }),
+    toplevel("0x4", 2, 7, 2),
+    toplevel("0x5", 1, 8, 4)
+  ]
+
+  assert.deepEqual(
+    Array.from(model.desktopToplevels(windows, 1, 7), window => window.address),
+    ["0x2", "0x3", "0x1"]
+  )
+})
+
+test("scales client geometry into a workspace thumbnail", () => {
+  const window = toplevel("0x1", 1, 7, 0, {
+    at: [200, 100],
+    size: [500, 250]
+  })
+  const rect = JSON.parse(JSON.stringify(model.workspaceThumbnailRect(
+    window, { x: 100, y: 50, width: 1000, height: 500 }, 200, 100
+  )))
+
+  assert.deepEqual(rect, { x: 20, y: 10, width: 100, height: 50 })
+  assert.equal(model.workspaceThumbnailRect(window, { width: 0, height: 500 }, 200, 100), null)
+  assert.equal(model.workspaceThumbnailRect(
+    toplevel("0x2", 1, 7, 0), { width: 1000, height: 500 }, 200, 100
+  ), null)
+})
+
 test("lists only positive workspaces on the target monitor and retains selection", () => {
   const workspaces = [
     { id: 4, monitor: { id: 7 } },
@@ -63,6 +94,7 @@ test("lists only positive workspaces on the target monitor and retains selection
   assert.deepEqual(Array.from(model.workspaceIds(workspaces, 7, 1)), [1, 2, 4])
   assert.deepEqual(Array.from(model.workspaceIds(workspaces, 7, 4)), [2, 4])
   assert.deepEqual(Array.from(model.workspaceIds(workspaces, 7, 1, [3, 5])), [1, 2, 3, 4, 5])
+  assert.deepEqual(Array.from(model.workspaceIds(workspaces, -1, 1, [5])), [1, 2, 3, 4, 5])
 })
 
 test("chooses an adaptive grid for normal and ultrawide monitors", () => {

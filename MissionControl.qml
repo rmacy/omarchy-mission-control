@@ -19,6 +19,9 @@ Item {
   property bool windowDragActive: false
   property int windowDragIndex: -1
   property int windowDropWorkspaceId: -1
+  property bool windowDropAnimating: false
+  property var pendingWindowToplevel: null
+  property int pendingWindowWorkspaceId: -1
   property var managedWorkspaceIds: []
   property bool spacesLoaded: false
   readonly property string spacesStatePath: Quickshell.env("HOME")
@@ -41,6 +44,9 @@ Item {
   readonly property color selectedTextColor: Color.menu.selectedText
   readonly property color selectedBorderColor: Color.menu.selectedBorder
   readonly property int gridSpacing: Math.max(Style.spacing.lg, 18)
+  readonly property string currentBackgroundLink: Quickshell.env("HOME")
+    + "/.local/state/omarchy/current/background"
+  readonly property var overviewMonitor: root.monitorById(root.targetMonitorId)
   readonly property int gridColumns: WindowModel.gridColumns(
     root.windows.length, windowGrid.width, windowGrid.height)
   readonly property int gridRows: root.windows.length === 0 || root.gridColumns === 0
@@ -56,6 +62,24 @@ Item {
       if (String(screens[i].name || "") === String(name || "")) return screens[i]
     }
     return screens.length > 0 ? screens[0] : null
+  }
+
+  function monitorById(monitorId) {
+    var monitors = Hyprland.monitors.values
+    for (var i = 0; i < monitors.length; i++) {
+      if (Number(monitors[i].id) === Number(monitorId)) return monitors[i]
+    }
+    return null
+  }
+
+  function desktopWindows(workspaceId) {
+    return WindowModel.desktopToplevels(
+      Hyprland.toplevels.values, Number(workspaceId), root.targetMonitorId)
+  }
+
+  function thumbnailRect(toplevel, width, height) {
+    return WindowModel.workspaceThumbnailRect(
+      toplevel, root.overviewMonitor, width, height)
   }
 
   function desktopEntry(metadata) {
@@ -205,6 +229,10 @@ Item {
     root.windowDragActive = false
     root.windowDragIndex = -1
     root.windowDropWorkspaceId = -1
+    root.windowDropAnimating = false
+    root.pendingWindowToplevel = null
+    root.pendingWindowWorkspaceId = -1
+    windowDropTimer.stop()
   }
 
   function selectWorkspace(workspaceId) {
@@ -463,6 +491,23 @@ Item {
     onTriggered: if (root.opened) root.refreshOverview()
   }
 
+  Timer {
+    id: windowDropTimer
+    interval: 180
+    repeat: false
+    onTriggered: {
+      var toplevel = root.pendingWindowToplevel
+      var workspaceId = root.pendingWindowWorkspaceId
+      root.windowDropAnimating = false
+      root.windowDragActive = false
+      root.windowDragIndex = -1
+      root.windowDropWorkspaceId = -1
+      root.pendingWindowToplevel = null
+      root.pendingWindowWorkspaceId = -1
+      root.moveWindowToWorkspace(toplevel, workspaceId)
+    }
+  }
+
   Process {
     id: workspaceProcess
     property string operation: ""
@@ -587,13 +632,18 @@ Item {
 
         Rectangle {
           id: workspaceRail
-          readonly property real chipWidth: Math.max(Style.space(116), 144)
-          readonly property real chipHeight: Math.max(Style.space(50), 58)
+          readonly property real monitorAspect: root.overviewMonitor
+            && root.overviewMonitor.height > 0
+            ? root.overviewMonitor.width / root.overviewMonitor.height : 16 / 9
           readonly property real chipSpacing: Math.max(Style.spacing.sm, 10)
+          readonly property real chipWidth: Math.max(120, Math.min(240,
+            (overview.width - 180 - root.workspaceIds.length * chipSpacing)
+              / Math.max(1, root.workspaceIds.length)))
+          readonly property real chipHeight: Math.max(58, Math.min(140,
+            chipWidth / monitorAspect))
 
           anchors.top: heading.bottom
           anchors.topMargin: Math.max(Style.space(18), 18)
-          anchors.horizontalCenter: parent.horizontalCenter
           width: Math.min(parent.width, workspaceRow.implicitWidth + Math.max(Style.space(20), 20) * 2)
           height: chipHeight + Math.max(Style.space(18), 18)
           radius: Math.max(Style.cornerRadius, 18)
@@ -617,8 +667,8 @@ Item {
                 required property int index
                 readonly property bool selected: modelData === root.selectedWorkspaceId
                 readonly property int windowCount: root.workspaceWindowCount(modelData)
-                readonly property bool windowDropTarget: root.windowDragActive
-                  && root.windowDropWorkspaceId === modelData
+                readonly property bool windowDropTarget: (root.windowDragActive
+                  || root.windowDropAnimating) && root.windowDropWorkspaceId === modelData
                 property bool hovered: false
                 property real dragOffset: 0
 
@@ -637,34 +687,103 @@ Item {
 
                 Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
 
-                Column {
-                  anchors.centerIn: parent
-                  spacing: 1
+                Item {
+                  id: desktopSurface
+                  anchors.fill: parent
+                  clip: true
 
-                  Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: "Space " + workspaceChip.modelData
-                    color: workspaceChip.selected ? root.selectedTextColor : root.foregroundColor
-                    font.family: Style.font.menuFamily
-                    font.pixelSize: Style.font.body
-                    font.weight: Font.DemiBold
+                  Image {
+                    anchors.fill: parent
+                    source: Util.fileUrl(root.currentBackgroundLink)
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    cache: true
+                    smooth: true
                   }
 
-                  Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: workspaceChip.windowCount === 1
-                      ? "1 window" : workspaceChip.windowCount + " windows"
-                    color: workspaceChip.selected ? root.selectedTextColor : root.foregroundColor
-                    opacity: 0.55
-                    font.family: Style.font.menuFamily
-                    font.pixelSize: Style.font.caption
+                  Rectangle {
+                    anchors.fill: parent
+                    color: Util.alpha(root.scrimColor, 0.12)
+                  }
+
+                  Repeater {
+                    model: root.desktopWindows(workspaceChip.modelData)
+
+                    Item {
+                      id: thumbnailWindow
+                      required property var modelData
+                      readonly property var geometry: root.thumbnailRect(
+                        modelData, desktopSurface.width, desktopSurface.height)
+
+                      visible: geometry !== null && !!modelData.wayland
+                      x: geometry ? geometry.x : 0
+                      y: geometry ? geometry.y : 0
+                      width: geometry ? geometry.width : 0
+                      height: geometry ? geometry.height : 0
+
+                      ScreencopyView {
+                        anchors.fill: parent
+                        captureSource: thumbnailWindow.modelData.wayland
+                        live: root.opened
+                        paintCursor: false
+                      }
+
+                      Rectangle {
+                        anchors.fill: parent
+                        color: "transparent"
+                        border.color: Util.alpha(root.borderColor, 0.7)
+                        border.width: 1
+                      }
+                    }
+                  }
+
+                  Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: Math.min(24, parent.height * 0.34)
+                    color: Util.alpha(root.backgroundColor, 0.82)
+                    z: 5
+
+                    Row {
+                      anchors.centerIn: parent
+                      spacing: 6
+
+                      Text {
+                        text: "Space " + workspaceChip.modelData
+                        color: workspaceChip.selected
+                          ? root.selectedTextColor : root.foregroundColor
+                        font.family: Style.font.menuFamily
+                        font.pixelSize: Style.font.caption
+                        font.weight: Font.DemiBold
+                      }
+
+                      Text {
+                        text: workspaceChip.windowCount
+                        color: root.foregroundColor
+                        opacity: 0.55
+                        font.family: Style.font.menuFamily
+                        font.pixelSize: Style.font.caption
+                      }
+                    }
+                  }
+
+                  Rectangle {
+                    anchors.fill: parent
+                    color: "transparent"
+                    radius: workspaceChip.radius
+                    border.color: workspaceChip.windowDropTarget || workspaceChip.selected
+                      ? root.selectedBorderColor : Util.alpha(root.borderColor, 0.7)
+                    border.width: workspaceChip.windowDropTarget
+                      ? 3 : (workspaceChip.selected ? 2 : 1)
+                    z: 6
                   }
                 }
 
                 MouseArea {
                   id: workspaceDrag
                   anchors.fill: parent
-                  enabled: !root.windowDragActive
+                  enabled: !root.windowDragActive && !root.windowDropAnimating
                   hoverEnabled: true
                   cursorShape: root.dragActive ? Qt.ClosedHandCursor : Qt.OpenHandCursor
                   preventStealing: true
@@ -811,9 +930,23 @@ Item {
               property bool hovered: false
               property real dragOffsetX: 0
               property real dragOffsetY: 0
-              readonly property bool beingDragged: root.windowDragActive
-                && root.windowDragIndex === index
+              property real dragScale: 1
+              readonly property bool beingDragged: root.windowDragIndex === index
+                && (root.windowDragActive || root.windowDropAnimating)
               z: beingDragged ? 100 : 1
+              Behavior on dragOffsetX {
+                enabled: root.windowDropAnimating
+                NumberAnimation { duration: 170; easing.type: Easing.InOutCubic }
+              }
+              Behavior on dragOffsetY {
+                enabled: root.windowDropAnimating
+                NumberAnimation { duration: 170; easing.type: Easing.InOutCubic }
+              }
+              onBeingDraggedChanged: if (!beingDragged) {
+                dragOffsetX = 0
+                dragOffsetY = 0
+                dragScale = 1
+              }
               readonly property int column: root.gridColumns > 0 ? index % root.gridColumns : 0
               readonly property int row: root.gridColumns > 0 ? Math.floor(index / root.gridColumns) : 0
 
@@ -844,10 +977,12 @@ Item {
                   : Util.alpha(root.backgroundColor, 0.82)
                 border.color: windowCell.selected ? root.selectedBorderColor : root.borderColor
                 border.width: windowCell.selected ? 3 : 1
-                scale: windowCell.beingDragged ? 1.04
+                scale: windowCell.beingDragged ? windowCell.dragScale
                   : (windowCell.selected ? 1 : (windowCell.hovered ? 0.99 : 0.965))
-                opacity: windowCell.beingDragged || windowCell.selected || windowCell.hovered
-                  ? 1 : 0.82
+                opacity: root.windowDropAnimating && windowCell.beingDragged
+                  ? 0.28
+                  : (windowCell.beingDragged || windowCell.selected || windowCell.hovered
+                    ? 1 : 0.82)
 
                 Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
                 Behavior on opacity { NumberAnimation { duration: 120 } }
@@ -958,7 +1093,7 @@ Item {
 
                 Rectangle {
                   id: closeButton
-                  visible: windowCell.hovered
+                  visible: windowCell.hovered && !windowCell.beingDragged
                   anchors.top: parent.top
                   anchors.right: parent.right
                   anchors.margins: Math.max(Style.space(10), 10)
@@ -989,6 +1124,7 @@ Item {
                 MouseArea {
                   id: windowDrag
                   anchors.fill: parent
+                  enabled: !workspaceProcess.running && !root.windowDropAnimating
                   hoverEnabled: true
                   preventStealing: true
                   cursorShape: windowCell.beingDragged ? Qt.ClosedHandCursor : Qt.OpenHandCursor
@@ -1030,16 +1166,42 @@ Item {
                     var destination = targetIndex >= 0 ? root.workspaceIds[targetIndex] : -1
                     root.windowDropWorkspaceId = destination === root.selectedWorkspaceId
                       ? -1 : destination
+                    var dropScale = root.windowDropWorkspaceId > 0
+                      ? Math.min(0.32,
+                        workspaceRail.chipWidth * 0.82 / Math.max(1, windowCard.width),
+                        workspaceRail.chipHeight * 0.82 / Math.max(1, windowCard.height))
+                      : 0.72
+                    windowCell.dragScale = Math.max(0.1, dropScale)
                   }
                   onReleased: {
                     var destination = root.windowDropWorkspaceId
-                    windowCell.dragOffsetX = 0
-                    windowCell.dragOffsetY = 0
-                    root.windowDragActive = false
-                    root.windowDragIndex = -1
-                    root.windowDropWorkspaceId = -1
-                    if (moved && destination > 0)
-                      root.moveWindowToWorkspace(windowCell.modelData.toplevel, destination)
+                    if (moved && destination > 0) {
+                      var targetIndex = root.workspaceIds.indexOf(destination)
+                      var step = workspaceRail.chipWidth + workspaceRail.chipSpacing
+                      var targetCenter = workspaceRow.mapToItem(
+                        overview, targetIndex * step + workspaceRail.chipWidth / 2,
+                        workspaceRail.chipHeight / 2)
+                      var currentCenter = windowCard.mapToItem(
+                        overview, windowCard.width / 2, windowCard.height / 2)
+
+                      root.pendingWindowToplevel = windowCell.modelData.toplevel
+                      root.pendingWindowWorkspaceId = destination
+                      root.windowDropAnimating = true
+                      root.windowDragActive = false
+                      windowCell.dragOffsetX += targetCenter.x - currentCenter.x
+                      windowCell.dragOffsetY += targetCenter.y - currentCenter.y
+                      windowCell.dragScale = Math.max(0.08, Math.min(
+                        workspaceRail.chipWidth * 0.72 / Math.max(1, windowCard.width),
+                        workspaceRail.chipHeight * 0.72 / Math.max(1, windowCard.height)))
+                      windowDropTimer.restart()
+                    } else {
+                      windowCell.dragOffsetX = 0
+                      windowCell.dragOffsetY = 0
+                      windowCell.dragScale = 1
+                      root.windowDragActive = false
+                      root.windowDragIndex = -1
+                      root.windowDropWorkspaceId = -1
+                    }
                   }
                   onCanceled: {
                     windowCell.dragOffsetX = 0
@@ -1047,6 +1209,10 @@ Item {
                     root.windowDragActive = false
                     root.windowDragIndex = -1
                     root.windowDropWorkspaceId = -1
+                    windowCell.dragScale = 1
+                    root.windowDropAnimating = false
+                    root.pendingWindowToplevel = null
+                    root.pendingWindowWorkspaceId = -1
                   }
                   onClicked: if (!moved) root.activateSelected()
                 }
