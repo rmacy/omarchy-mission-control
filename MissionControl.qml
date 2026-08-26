@@ -649,10 +649,10 @@ Item {
             ? root.overviewMonitor.width / root.overviewMonitor.height : 16 / 9
           anchors.horizontalCenter: parent.horizontalCenter
           readonly property real chipSpacing: Math.max(Style.spacing.sm, 10)
-          readonly property real chipWidth: Math.max(120, Math.min(240,
-            (overview.width - 180 - root.workspaceIds.length * chipSpacing)
+          readonly property real chipWidth: Math.max(160, Math.min(420,
+            (overview.width - 220 - root.workspaceIds.length * chipSpacing)
               / Math.max(1, root.workspaceIds.length)))
-          readonly property real chipHeight: Math.max(58, Math.min(140,
+          readonly property real chipHeight: Math.max(72, Math.min(220,
             chipWidth / monitorAspect))
 
           anchors.top: heading.bottom
