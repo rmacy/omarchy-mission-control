@@ -5,6 +5,7 @@ A macOS-style workspace and window overview for Omarchy. It runs inside the exis
 ## Features
 
 - Live, aspect-correct previews of every window in the selected workspace
+- Desktop thumbnails reconstruct each space's tiled and floating window layout over the current wallpaper
 - Bar workspace widget that takes over the stock Workspaces slot and shows exactly the spaces that exist
 - Adaptive layout for laptop, desktop, and ultrawide displays
 - Space cards with drag-to-reorder, correct renumbering, creation, and removal
@@ -19,6 +20,12 @@ A macOS-style workspace and window overview for Omarchy. It runs inside the exis
 - Hyprland 0.56 or newer with Lua configuration
 - Quickshell 0.3 or newer
 - Hyprland support for `hyprland-toplevel-export-v1` and foreign-toplevel management; both are present in stock Omarchy
+
+## Desktop thumbnails
+
+Each space card composes Hyprland's real window geometry with captured client surfaces, so tiled and floating windows appear where they actually live. The selected space stays live; inactive spaces take a snapshot to avoid multiplying compositor capture work every frame.
+
+Wayland's toplevel export omits compositor-only decorations and layer-shell surfaces. The cards therefore include wallpaper, window placement, sizes, and content, but not the Omarchy bar, compositor shadows, or notification layers.
 
 ## Install
 
