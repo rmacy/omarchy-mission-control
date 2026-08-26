@@ -11,6 +11,7 @@ Item {
   property var shell: null
   property var manifest: null
   readonly property var appLibrary: root.shell ? root.shell.appLibrary : null
+  readonly property int foreignToplevelCount: ToplevelManager.toplevels.values.length
 
   property bool opened: false
   property real revealProgress: 0
@@ -92,11 +93,15 @@ Item {
     var appName = entry ? String(root.appLibrary.entryName(entry) || fallbackName) : fallbackName
     var iconName = entry ? String(entry.icon || "")
       : String(metadata.initialClass || metadata.class || "application-x-executable")
+    var sourceSize = metadata.size || []
+    var sourceAspect = Number(sourceSize[0]) / Number(sourceSize[1])
+    if (!isFinite(sourceAspect) || sourceAspect <= 0) sourceAspect = 16 / 10
 
     return {
       toplevel: toplevel,
       captureSource: toplevel.wayland,
       address: String(toplevel.address || metadata.address || ""),
+      aspect: sourceAspect,
       appName: appName,
       title: WindowModel.shortenedTitle(toplevel.title || metadata.title || appName, 120),
       iconSource: root.appLibrary
@@ -171,6 +176,14 @@ Item {
     return "ok"
   }
 
+  function toggle(payloadJson) {
+    if (root.opened) {
+      root.close()
+      return "closed"
+    }
+    return root.open(payloadJson || "{}")
+  }
+
   function close() {
     root.revealProgress = 0
     root.opened = false
@@ -230,6 +243,8 @@ Item {
       Hyprland.toplevels.values, Number(workspaceId), root.targetMonitorId).length
   }
 
+
+
   function status(_argument) {
     return JSON.stringify({
       open: root.opened,
@@ -237,6 +252,8 @@ Item {
       workspace: root.selectedWorkspaceId,
       workspaceCount: root.workspaceIds.length,
       windowCount: root.windows.length,
+      hyprlandToplevelCount: Hyprland.toplevels.values.length,
+      foreignToplevelCount: root.foreignToplevelCount,
       selectedAddress: root.currentSelectedAddress()
     })
   }
@@ -247,6 +264,21 @@ Item {
       if (root.opened) refreshTimer.restart()
     }
   }
+
+  Connections {
+    target: Hyprland.toplevels
+    function onValuesChanged() {
+      if (root.opened) refreshTimer.restart()
+    }
+  }
+
+  Connections {
+    target: Hyprland.workspaces
+    function onValuesChanged() {
+      if (root.opened) refreshTimer.restart()
+    }
+  }
+
 
   Timer {
     id: refreshTimer
@@ -434,8 +466,16 @@ Item {
 
               Rectangle {
                 id: windowCard
-                anchors.fill: parent
-                anchors.margins: Math.max(Style.space(4), 4)
+                readonly property real previewAspect: Math.max(
+                  0.4, Math.min(4, Number(windowCell.modelData.aspect) || 16 / 10))
+                readonly property real chromeHeight: Math.max(Style.space(52), 52)
+                  + Math.max(Style.space(16), 16)
+                anchors.centerIn: parent
+                width: Math.max(0, parent.width - Math.max(Style.space(8), 8))
+                height: Math.min(
+                  Math.max(0, parent.height - Math.max(Style.space(8), 8)),
+                  Math.max(chromeHeight + 80, (width - Math.max(Style.space(16), 16))
+                    / previewAspect + chromeHeight))
                 radius: Math.max(Style.cornerRadius, 18)
                 color: windowCell.selected
                   ? Util.alpha(root.selectedColor, 0.92)

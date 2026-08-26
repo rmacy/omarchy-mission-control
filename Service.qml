@@ -13,6 +13,10 @@ Item {
   property bool applyQueued: false
   property bool shuttingDown: false
 
+  function removeGestureLua() {
+    return 'hl.gesture({ fingers = 3, direction = "up", mods = "", scale = 1.0, action = "unset" })'
+  }
+
   function applyLua() {
     return [
       'local owner = "' + root.ownerToken + '"',
@@ -21,10 +25,11 @@ Item {
       'hl.bind("CTRL + UP",',
       '  hl.dsp.exec_cmd("omarchy-shell -q shell toggle bitr0t.mission-control"),',
       '  { description = "Mission Control" })',
-      'hl.gesture({ fingers = 3, direction = "up", action = "unset" })',
       'hl.gesture({',
       '  fingers = 3,',
       '  direction = "up",',
+      '  mods = "",',
+      '  scale = 1.0,',
       '  action = function()',
       '    hl.exec_cmd("omarchy-shell -q shell toggle bitr0t.mission-control")',
       '  end',
@@ -38,7 +43,8 @@ Item {
       'if _G.bitr0t_mission_control_owner == owner then',
       '  _G.bitr0t_mission_control_owner = nil',
       '  hl.unbind("CTRL + UP")',
-      '  hl.gesture({ fingers = 3, direction = "up", action = "unset" })',
+      '  hl.exec_cmd("hyprctl reload")',
+      '  hl.gesture({ fingers = 3, direction = "up", mods = "", scale = 1.0, action = "unset" })',
       'end'
     ].join("\n")
   }
@@ -49,12 +55,18 @@ Item {
 
   function applyBindings() {
     if (root.shuttingDown) return
-    if (applyProcess.running) {
+    if (removeGestureProcess.running || applyProcess.running) {
       root.applyQueued = true
       return
     }
 
     root.applyQueued = false
+    removeGestureProcess.command = ["hyprctl", "eval", root.removeGestureLua()]
+    removeGestureProcess.running = true
+  }
+
+  function startApply() {
+    if (root.shuttingDown) return
     applyProcess.command = ["hyprctl", "eval", root.applyLua()]
     applyProcess.running = true
   }
@@ -67,11 +79,21 @@ Item {
   }
 
   Process {
+    id: removeGestureProcess
+    onExited: root.startApply()
+  }
+
+  Process {
     id: applyProcess
+    stdout: StdioCollector { id: applyStdout; waitForEnd: true }
+    stderr: StdioCollector { id: applyStderr; waitForEnd: true }
     onExited: function(exitCode) {
       if (root.shuttingDown) return
-      if (exitCode !== 0)
-        console.warn("bitr0t.mission-control: failed to register shortcut and gesture (exit " + exitCode + ")")
+      if (exitCode !== 0) {
+        var detail = String(applyStdout.text || applyStderr.text || "").trim()
+        console.warn("bitr0t.mission-control: failed to register shortcut and gesture (exit "
+          + exitCode + ")" + (detail ? ": " + detail : ""))
+      }
       if (root.applyQueued) root.queueApply()
     }
   }
@@ -88,10 +110,11 @@ Item {
   Component.onDestruction: {
     root.shuttingDown = true
     applyTimer.stop()
+    if (removeGestureProcess.running) removeGestureProcess.running = false
     if (applyProcess.running) applyProcess.running = false
     Quickshell.execDetached([
       "sh", "-c",
-      'hyprctl eval "$1" >/dev/null 2>&1; hyprctl reload >/dev/null 2>&1',
+      'sleep 0.4; hyprctl eval "$1" >/dev/null 2>&1',
       "mission-control-cleanup", root.cleanupLua()
     ])
   }

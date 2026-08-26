@@ -40,6 +40,17 @@ test("filters live toplevels by workspace and monitor and orders them by MRU", (
   assert.deepEqual(Array.from(result, window => window.address), ["0x1", "0x3", "0x7"])
 })
 
+test("accepts Quickshell's array-like object models", () => {
+  const first = toplevel("0x1", 1, 7, 0)
+  const second = toplevel("0x2", 1, 7, 1)
+  const qmlList = { 0: first, 1: second, length: 2 }
+
+  assert.deepEqual(
+    Array.from(model.visibleToplevels(qmlList, 1, 7), window => window.address),
+    ["0x1", "0x2"]
+  )
+})
+
 test("lists only positive workspaces on the target monitor and retains selection", () => {
   const workspaces = [
     { id: 4, monitor: { id: 7 } },
