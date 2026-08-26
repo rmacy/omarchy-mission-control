@@ -9,33 +9,66 @@ const model = {}
 vm.createContext(model)
 vm.runInContext(source, model, { filename: "WindowModel.js" })
 
-test("filters to switchable windows on one monitor and orders them by MRU", () => {
-  const clients = [
-    { address: "0x3", monitor: 1, mapped: true, acceptsInput: true, focusHistoryID: 3 },
-    { address: "0x1", monitor: 1, mapped: true, acceptsInput: true, focusHistoryID: 0 },
-    { address: "0x2", monitor: 2, mapped: true, acceptsInput: true, focusHistoryID: 1 },
-    { address: "0x4", monitor: 1, mapped: false, acceptsInput: true, focusHistoryID: 2 },
-    { address: "0x5", monitor: 1, mapped: true, acceptsInput: false, focusHistoryID: 1 },
-    { address: "0x6", monitor: 1, mapped: true, acceptsInput: true, focusHistoryID: -1 }
+function toplevel(address, workspace, monitor, focusHistoryID, overrides = {}) {
+  return {
+    address,
+    wayland: {},
+    workspace: { id: workspace },
+    monitor: { id: monitor },
+    lastIpcObject: {
+      mapped: true,
+      hidden: false,
+      acceptsInput: true,
+      focusHistoryID,
+      ...overrides
+    }
+  }
+}
+
+test("filters live toplevels by workspace and monitor and orders them by MRU", () => {
+  const windows = [
+    toplevel("0x3", 1, 7, 3),
+    toplevel("0x1", 1, 7, 0),
+    toplevel("0x2", 2, 7, 1),
+    toplevel("0x4", 1, 8, 2),
+    toplevel("0x5", 1, 7, 1, { hidden: true }),
+    { ...toplevel("0x6", 1, 7, 2), wayland: null },
+    toplevel("0x7", 1, 7, -1)
   ]
 
-  const result = model.switchableClients(clients, 1)
-  assert.deepEqual(Array.from(result, client => client.address), ["0x1", "0x3", "0x6"])
+  const result = model.visibleToplevels(windows, 1, 7)
+  assert.deepEqual(Array.from(result, window => window.address), ["0x1", "0x3", "0x7"])
 })
 
-test("starts on the next MRU window and wraps in both directions", () => {
-  assert.equal(model.initialIndex(1, 4), 1)
-  assert.equal(model.initialIndex(-1, 4), 3)
-  assert.equal(model.initialIndex(1, 1), 0)
-  assert.equal(model.initialIndex(1, 0), -1)
-  assert.equal(model.nextIndex(3, 1, 4), 0)
-  assert.equal(model.nextIndex(0, -1, 4), 3)
+test("lists only positive workspaces on the target monitor and retains selection", () => {
+  const workspaces = [
+    { id: 4, monitor: { id: 7 } },
+    { id: 2, monitor: { id: 7 } },
+    { id: 3, monitor: { id: 8 } },
+    { id: -99, monitor: { id: 7 } },
+    { id: 11, monitor: { id: 7 } }
+  ]
+
+  assert.deepEqual(Array.from(model.workspaceIds(workspaces, 7, 1)), [1, 2, 4])
+  assert.deepEqual(Array.from(model.workspaceIds(workspaces, 7, 4)), [2, 4])
 })
 
-test("turns application classes into readable fallback labels", () => {
-  assert.equal(model.classLabel("com.mitchellh.ghostty"), "Ghostty")
-  assert.equal(model.classLabel("org.example.my_app"), "My App")
-  assert.equal(model.classLabel(""), "Application")
+test("chooses an adaptive grid for normal and ultrawide monitors", () => {
+  assert.equal(model.gridColumns(0, 1920, 1080), 0)
+  assert.equal(model.gridColumns(1, 1920, 1080), 1)
+  assert.equal(model.gridColumns(5, 1920, 1080), 3)
+  assert.equal(model.gridColumns(5, 7680, 1600), 5)
+  assert.equal(model.gridColumns(4, 800, 1200), 2)
+})
+
+test("keyboard navigation wraps and preserves columns across short rows", () => {
+  assert.equal(model.nextGridIndex(4, 1, 0, 3, 5), 0)
+  assert.equal(model.nextGridIndex(0, -1, 0, 3, 5), 4)
+  assert.equal(model.nextGridIndex(1, 0, 1, 3, 5), 4)
+  assert.equal(model.nextGridIndex(2, 0, 1, 3, 5), 4)
+  assert.equal(model.nextGridIndex(4, 0, 1, 3, 5), 1)
+  assert.equal(model.nextGridIndex(-1, 0, 0, 3, 5), 0)
+  assert.equal(model.nextGridIndex(0, 1, 0, 0, 0), -1)
 })
 
 test("normalizes titles without breaking short labels", () => {

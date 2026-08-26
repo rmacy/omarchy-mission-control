@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "id": "bitr0t.window-switcher",
-  "name": "Window Switcher",
+  "id": "bitr0t.mission-control",
+  "name": "Mission Control",
   "version": "1.0.0",
   "author": "Ryan Macy",
-  "description": "Animated macOS-style Alt-Tab switcher for windows on the focused monitor.",
+  "description": "Live workspace and window overview for Omarchy, opened by Control+Up or a three-finger upward swipe.",
   "kinds": [
     "overlay",
     "service"
   ],
   "keepLoaded": true,
   "entryPoints": {
-    "overlay": "WindowSwitcher.qml",
+    "overlay": "MissionControl.qml",
     "service": "Service.qml"
   }
 }

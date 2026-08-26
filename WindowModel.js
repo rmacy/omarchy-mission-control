@@ -32,7 +32,9 @@ function monitorId(toplevel) {
 }
 
 function historyRank(toplevel) {
-  var rank = numberOr(metadata(toplevel).focusHistoryID, 2147483647)
+  var data = metadata(toplevel)
+  var rank = numberOr(data.focusHistoryID,
+    numberOr(toplevel && toplevel.focusHistoryID, 2147483647))
   return rank >= 0 ? rank : 2147483647
 }
 
@@ -72,6 +74,43 @@ function visibleToplevels(toplevels, wantedWorkspaceId, wantedMonitorId) {
     return leftAddress < rightAddress ? -1 : (leftAddress > rightAddress ? 1 : 0)
   })
   return result
+}
+
+function switchableClients(clients, wantedMonitorId) {
+  var source = valuesOf(clients)
+  var monitor = numberOr(wantedMonitorId, -1)
+  var result = []
+
+  for (var i = 0; i < source.length; i++) {
+    var client = source[i]
+    if (!client || !client.address) continue
+    if (client.mapped === false || client.acceptsInput === false) continue
+    if (numberOr(client.monitor, -1) !== monitor) continue
+    result.push(client)
+  }
+
+  result.sort(function(left, right) {
+    var byHistory = historyRank(left) - historyRank(right)
+    if (byHistory !== 0) return byHistory
+    var leftAddress = String(left.stableId || left.address || "")
+    var rightAddress = String(right.stableId || right.address || "")
+    return leftAddress < rightAddress ? -1 : (leftAddress > rightAddress ? 1 : 0)
+  })
+  return result
+}
+
+function initialIndex(direction, count) {
+  var size = Math.max(0, numberOr(count, 0))
+  if (size <= 1) return size - 1
+  return numberOr(direction, 1) < 0 ? size - 1 : 1
+}
+
+function nextIndex(index, delta, count) {
+  var size = Math.max(0, numberOr(count, 0))
+  if (size === 0) return -1
+  var current = numberOr(index, 0)
+  if (current < 0) current = 0
+  return ((current + numberOr(delta, 0)) % size + size) % size
 }
 
 function workspaceIds(workspaces, wantedMonitorId, selectedWorkspaceId) {
@@ -133,6 +172,18 @@ function nextGridIndex(index, horizontal, vertical, columns, count) {
   var rowStart = targetRow * columnCount
   var rowLength = Math.min(columnCount, size - rowStart)
   return rowStart + Math.min(currentColumn, rowLength - 1)
+}
+
+function classLabel(value) {
+  var raw = String(value || "").trim()
+  if (!raw) return "Application"
+  var segments = raw.split(".")
+  var leaf = segments[segments.length - 1] || raw
+  var words = leaf.replace(/[-_]+/g, " ").split(/\s+/)
+  for (var i = 0; i < words.length; i++) {
+    if (words[i]) words[i] = words[i].charAt(0).toUpperCase() + words[i].slice(1)
+  }
+  return words.join(" ")
 }
 
 function shortenedTitle(value, limit) {

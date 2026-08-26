@@ -1,0 +1,14 @@
+[tools]
+node = "24"
+
+[tasks.test]
+description = "Run the window and workspace model tests"
+run = "node --test tests/*.test.mjs"
+
+[tasks.lint]
+description = "Validate plugin QML"
+run = "/usr/lib/qt6/bin/qmllint -I /usr/share/omarchy/shell MissionControl.qml Service.qml"
+
+[tasks.check]
+description = "Run every repository check"
+depends = ["test", "lint"]

@@ -8,7 +8,7 @@ Item {
 
   property var shell: null
   property string omarchyPath: ""
-  readonly property string ownerToken: "bitr0t.window-switcher-" + Date.now()
+  readonly property string ownerToken: "bitr0t.mission-control-" + Date.now()
     + "-" + Math.random().toString(36).slice(2)
   property bool applyQueued: false
   property bool shuttingDown: false
@@ -16,25 +16,29 @@ Item {
   function applyLua() {
     return [
       'local owner = "' + root.ownerToken + '"',
-      '_G.bitr0t_window_switcher_owner = owner',
-      'hl.unbind("ALT + TAB")',
-      'hl.unbind("ALT + SHIFT + TAB")',
-      'hl.bind("ALT + TAB",',
-      '  hl.dsp.exec_cmd("omarchy-shell -q shell call bitr0t.window-switcher advance 1"),',
-      '  { description = "Window switcher" })',
-      'hl.bind("ALT + SHIFT + TAB",',
-      '  hl.dsp.exec_cmd("omarchy-shell -q shell call bitr0t.window-switcher advance -1"),',
-      '  { description = "Window switcher (reverse)" })'
+      '_G.bitr0t_mission_control_owner = owner',
+      'hl.unbind("CTRL + UP")',
+      'hl.bind("CTRL + UP",',
+      '  hl.dsp.exec_cmd("omarchy-shell -q shell toggle bitr0t.mission-control"),',
+      '  { description = "Mission Control" })',
+      'hl.gesture({ fingers = 3, direction = "up", action = "unset" })',
+      'hl.gesture({',
+      '  fingers = 3,',
+      '  direction = "up",',
+      '  action = function()',
+      '    hl.exec_cmd("omarchy-shell -q shell toggle bitr0t.mission-control")',
+      '  end',
+      '})'
     ].join("\n")
   }
 
   function cleanupLua() {
     return [
       'local owner = "' + root.ownerToken + '"',
-      'if _G.bitr0t_window_switcher_owner == owner then',
-      '  _G.bitr0t_window_switcher_owner = nil',
-      '  hl.unbind("ALT + TAB")',
-      '  hl.unbind("ALT + SHIFT + TAB")',
+      'if _G.bitr0t_mission_control_owner == owner then',
+      '  _G.bitr0t_mission_control_owner = nil',
+      '  hl.unbind("CTRL + UP")',
+      '  hl.gesture({ fingers = 3, direction = "up", action = "unset" })',
       'end'
     ].join("\n")
   }
@@ -49,6 +53,7 @@ Item {
       root.applyQueued = true
       return
     }
+
     root.applyQueued = false
     applyProcess.command = ["hyprctl", "eval", root.applyLua()]
     applyProcess.running = true
@@ -66,7 +71,7 @@ Item {
     onExited: function(exitCode) {
       if (root.shuttingDown) return
       if (exitCode !== 0)
-        console.warn("bitr0t.window-switcher: failed to register Alt-Tab bindings (exit " + exitCode + ")")
+        console.warn("bitr0t.mission-control: failed to register shortcut and gesture (exit " + exitCode + ")")
       if (root.applyQueued) root.queueApply()
     }
   }
@@ -87,7 +92,7 @@ Item {
     Quickshell.execDetached([
       "sh", "-c",
       'hyprctl eval "$1" >/dev/null 2>&1; hyprctl reload >/dev/null 2>&1',
-      "window-switcher-cleanup", root.cleanupLua()
+      "mission-control-cleanup", root.cleanupLua()
     ])
   }
 }
