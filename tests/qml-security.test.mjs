@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 import { test } from "node:test"
 
 const qml = readFileSync(new URL("../WindowSwitcher.qml", import.meta.url), "utf8")
+const missionQml = readFileSync(new URL("../MissionControl.qml", import.meta.url), "utf8")
 
 test("client-derived labels are always rendered as plain text", () => {
   const plainTextBindings = qml.match(/textFormat:\s*Text\.PlainText/g) || []
@@ -16,6 +17,15 @@ test("client-derived labels are always rendered as plain text", () => {
   assert.match(qml,
     /text:\s*String\(windowCard\.modelData\.displayTitle[\s\S]{0,120}?textFormat:\s*Text\.PlainText/)
   assert.doesNotMatch(qml, /textFormat:\s*Text\.(?:AutoText|RichText|StyledText|MarkdownText)/)
+})
+
+test("Mission Control renders workspace and client labels as plain text", () => {
+  assert.match(missionQml,
+    /text:\s*workspaceChip\.displayName\s*\n\s*textFormat:\s*Text\.PlainText/)
+  assert.match(missionQml,
+    /text:\s*String\(windowCell\.modelData\.appName[\s\S]{0,100}?textFormat:\s*Text\.PlainText/)
+  assert.match(missionQml,
+    /text:\s*String\(windowCell\.modelData\.title[\s\S]{0,100}?textFormat:\s*Text\.PlainText/)
 })
 
 test("window discovery uses the bounded native Hyprland model", () => {

@@ -11,9 +11,12 @@ import { test } from "node:test"
 const modelUrl = new URL("../WindowModel.js", import.meta.url)
 const modelPath = fileURLToPath(modelUrl)
 const exported = [
+  "MAX_SELECTED_GRID_CAPTURES", "MAX_WORKSPACE_THUMBNAIL_CAPTURES",
   "numberOr", "valuesOf", "metadata", "workspaceId", "monitorId",
   "historyRank", "stableAddress", "isVisibleToplevel", "visibleToplevels",
-  "desktopToplevels", "workspaceThumbnailRect", "workspaceIds", "gridColumns",
+  "desktopToplevels", "boundedFront", "boundedBackStack",
+  "selectedGridCaptureModel", "workspaceThumbnailCaptureModel",
+  "workspaceThumbnailRect", "workspaceIds", "gridColumns",
   "nextGridIndex", "nextFreeWorkspaceId", "moveArrayValue", "reassignPlan",
   "removalNeighbor", "remapWorkspaceIds", "normalizedSpaceName",
   "remapSpaceNames", "spaceCardIndexAt", "shortenedTitle"
@@ -116,6 +119,36 @@ test("builds back-to-front desktop stacks and includes pinned windows", () => {
     Array.from(model.desktopToplevels(windows, 1, 7), window => window.address),
     ["0x2", "0x3", "0x1"]
   )
+})
+
+test("bounds selected-grid captures and retains a preferred selection", () => {
+  const windows = Array.from({ length: 15 }, (_, index) =>
+    toplevel("0x" + index.toString(16), 1, 7, index))
+  const ordinary = model.selectedGridCaptureModel(windows, 1, 7, "")
+  assert.equal(ordinary.items.length, 12)
+  assert.equal(ordinary.totalCount, 15)
+  assert.equal(ordinary.omittedCount, 3)
+  assert.deepEqual(Array.from(ordinary.items, window => window.address),
+    windows.slice(0, 12).map(window => window.address))
+
+  const preferred = model.selectedGridCaptureModel(windows, 1, 7, "0xe")
+  assert.equal(preferred.items.length, 12)
+  assert.equal(preferred.items[11].address, "0xe")
+})
+
+test("workspace thumbnail cap keeps the frontmost back-to-front suffix and counts pins", () => {
+  const windows = Array.from({ length: 6 }, (_, index) =>
+    toplevel("0x" + index.toString(16), 1, 7, index))
+  windows.push(toplevel("0xf", 2, 7, 6, { pinned: true }))
+
+  const preview = model.workspaceThumbnailCaptureModel(windows, 1, 7)
+  assert.equal(preview.items.length, 4)
+  assert.equal(preview.totalCount, 7)
+  assert.equal(preview.omittedCount, 3)
+  assert.deepEqual(Array.from(preview.items, window => window.address),
+    ["0x3", "0x2", "0x1", "0x0"])
+  assert.equal(model.MAX_SELECTED_GRID_CAPTURES
+    + 10 * model.MAX_WORKSPACE_THUMBNAIL_CAPTURES, 52)
 })
 
 test("scales client geometry into a workspace thumbnail", () => {
@@ -221,6 +254,7 @@ test("normalizes user-defined space names", () => {
   assert.equal(model.normalizedSpaceName("   "), "")
   assert.equal(model.normalizedSpaceName("abcdefghijkl", 6), "abcdef")
   assert.equal(model.normalizedSpaceName(null), "")
+  assert.equal(model.normalizedSpaceName("<img src=https://example.test/x>"), "img src=https://example.test/x")
 })
 
 test("remaps names with workspace content while preserving outside spaces", () => {

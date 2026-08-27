@@ -39,6 +39,9 @@ Item {
   property int selectedIndex: -1
   property var workspaceIds: []
   property var windows: []
+  property int totalWindowCount: 0
+  readonly property int maxOverviewWindows: WindowModel.MAX_SELECTED_GRID_CAPTURES
+  readonly property int maxSpaceThumbnailWindows: WindowModel.MAX_WORKSPACE_THUMBNAIL_CAPTURES
   property var desktopCache: ({})
   readonly property string pluginSourceDir: root.manifest && root.manifest.__sourceDir
     ? String(root.manifest.__sourceDir).replace(/\/+$/, "") : ""
@@ -146,9 +149,9 @@ Item {
   }
 
 
-  function desktopWindows(workspaceId) {
+  function desktopCaptureModel(workspaceId) {
     var revision = root.desktopRevision
-    return WindowModel.desktopToplevels(
+    return WindowModel.workspaceThumbnailCaptureModel(
       Hyprland.toplevels.values, Number(workspaceId), root.targetMonitorId)
   }
 
@@ -225,8 +228,11 @@ Item {
   }
 
   function refreshWindows(preferredAddress) {
-    var handles = WindowModel.visibleToplevels(
-      Hyprland.toplevels.values, root.selectedWorkspaceId, root.targetMonitorId)
+    var captureModel = WindowModel.selectedGridCaptureModel(
+      Hyprland.toplevels.values, root.selectedWorkspaceId,
+      root.targetMonitorId, preferredAddress)
+    root.totalWindowCount = captureModel.totalCount
+    var handles = captureModel.items
     var nextWindows = []
     for (var i = 0; i < handles.length; i++) nextWindows.push(root.decorate(handles[i]))
 
@@ -307,6 +313,9 @@ Item {
     root.revealProgress = 0
     root.opened = false
     root.windows = []
+    root.totalWindowCount = 0
+    root.workspaceIds = []
+    root.desktopCache = ({})
     root.selectedIndex = -1
     root.editingWorkspaceId = -1
     root.windowDragActive = false
@@ -538,10 +547,7 @@ Item {
     return index < 0 ? -1 : index + 1
   }
 
-  function workspaceWindowCount(workspaceId) {
-    return WindowModel.visibleToplevels(
-      Hyprland.toplevels.values, Number(workspaceId), root.targetMonitorId).length
-  }
+
 
 
 
@@ -557,6 +563,11 @@ Item {
         && root.selectedIndex < root.windows.length
         && !!root.windows[root.selectedIndex].toplevel,
       windowCount: root.windows.length,
+      totalWindowCount: root.totalWindowCount,
+      windowCountCapped: root.totalWindowCount > root.windows.length,
+      omittedWindowCount: Math.max(0, root.totalWindowCount - root.windows.length),
+      maxOverviewWindows: root.maxOverviewWindows,
+      maxSpaceThumbnailWindows: root.maxSpaceThumbnailWindows,
       hyprlandToplevelCount: Hyprland.toplevels.values.length,
       foreignToplevelCount: root.foreignToplevelCount,
       backgroundPath: root.backgroundPath,
@@ -932,8 +943,9 @@ Item {
                   && root.spaceService.namesLoaded
                   ? String(root.spaceService.spaceNames[String(modelData)] || "") : ""
                 readonly property string displayName: customName || ("Space " + modelData)
-                readonly property bool selected: modelData === root.selectedWorkspaceId
-                readonly property int windowCount: root.workspaceWindowCount(modelData)
+                readonly property var previewModel: root.desktopCaptureModel(modelData)
+                readonly property int windowCount: previewModel.totalCount
+                readonly property int omittedWindowCount: previewModel.omittedCount
                 readonly property int renderedWindowCount: thumbnailWindowRepeater.count
                 readonly property bool windowDropTarget: (root.windowDragActive
                   || root.windowDropAnimating) && root.windowDropWorkspaceId === modelData
@@ -994,7 +1006,7 @@ Item {
 
                   Repeater {
                     id: thumbnailWindowRepeater
-                    model: root.desktopWindows(workspaceChip.modelData)
+                    model: workspaceChip.previewModel.items
 
                     Item {
                       id: thumbnailWindow
@@ -1050,6 +1062,7 @@ Item {
                         width: Math.max(0, parent.width - windowCountLabel.width - parent.spacing)
                         anchors.verticalCenter: parent.verticalCenter
                         text: workspaceChip.displayName
+                        textFormat: Text.PlainText
                         color: root.foregroundColor
                         font.family: Style.font.menuFamily
                         font.pixelSize: workspaceChip.customName
@@ -1062,8 +1075,11 @@ Item {
                       Text {
                         id: windowCountLabel
                         anchors.verticalCenter: parent.verticalCenter
-                        text: workspaceChip.windowCount === 1
-                          ? "1 window" : workspaceChip.windowCount + " windows"
+                        text: workspaceChip.renderedWindowCount < workspaceChip.windowCount
+                          ? workspaceChip.renderedWindowCount + " of "
+                            + workspaceChip.windowCount + " windows"
+                          : workspaceChip.windowCount === 1
+                            ? "1 window" : workspaceChip.windowCount + " windows"
                         color: root.foregroundColor
                         opacity: 0.68
                         font.family: Style.font.menuFamily
@@ -1490,6 +1506,7 @@ Item {
                       Text {
                         width: parent.width
                         text: String(windowCell.modelData.appName || "Application")
+                        textFormat: Text.PlainText
                         color: windowCell.selected ? root.selectedTextColor : root.foregroundColor
                         elide: Text.ElideRight
                         maximumLineCount: 1
@@ -1501,6 +1518,7 @@ Item {
                       Text {
                         width: parent.width
                         text: String(windowCell.modelData.title || "")
+                        textFormat: Text.PlainText
                         color: windowCell.selected ? root.selectedTextColor : root.foregroundColor
                         opacity: 0.62
                         elide: Text.ElideRight

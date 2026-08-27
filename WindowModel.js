@@ -1,5 +1,8 @@
 .pragma library
 
+var MAX_SELECTED_GRID_CAPTURES = 12
+var MAX_WORKSPACE_THUMBNAIL_CAPTURES = 4
+
 function numberOr(value, fallback) {
   var parsed = Number(value)
   return isFinite(parsed) ? parsed : fallback
@@ -98,6 +101,50 @@ function desktopToplevels(toplevels, wantedWorkspaceId, wantedMonitorId) {
     return leftAddress < rightAddress ? -1 : (leftAddress > rightAddress ? 1 : 0)
   })
   return result
+}
+
+function boundedFront(values, limit, preferredAddress) {
+  var source = valuesOf(values)
+  var maximum = Math.max(0, Math.floor(numberOr(limit, 0)))
+  if (maximum === 0) return []
+  if (source.length <= maximum) return Array.prototype.slice.call(source)
+  var result = Array.prototype.slice.call(source, 0, maximum)
+  var wanted = String(preferredAddress || "")
+  if (!wanted) return result
+  for (var i = maximum; i < source.length; i++) {
+    if (stableAddress(source[i]) === wanted) {
+      result[result.length - 1] = source[i]
+      break
+    }
+  }
+  return result
+}
+
+function boundedBackStack(values, limit) {
+  var source = valuesOf(values)
+  var maximum = Math.max(0, Math.floor(numberOr(limit, 0)))
+  if (maximum === 0) return []
+  return Array.prototype.slice.call(source, Math.max(0, source.length - maximum))
+}
+
+function selectedGridCaptureModel(toplevels, workspaceId, monitorId, preferredAddress) {
+  var all = visibleToplevels(toplevels, workspaceId, monitorId)
+  var items = boundedFront(all, MAX_SELECTED_GRID_CAPTURES, preferredAddress)
+  return {
+    items: items,
+    totalCount: all.length,
+    omittedCount: Math.max(0, all.length - items.length)
+  }
+}
+
+function workspaceThumbnailCaptureModel(toplevels, workspaceId, monitorId) {
+  var all = desktopToplevels(toplevels, workspaceId, monitorId)
+  var items = boundedBackStack(all, MAX_WORKSPACE_THUMBNAIL_CAPTURES)
+  return {
+    items: items,
+    totalCount: all.length,
+    omittedCount: Math.max(0, all.length - items.length)
+  }
 }
 
 function workspaceThumbnailRect(toplevel, monitor, frameWidth, frameHeight) {
@@ -278,7 +325,7 @@ function remapWorkspaceIds(ids, currentIds, desiredIds) {
 }
 
 function normalizedSpaceName(value, limit) {
-  var text = String(value || "").replace(/\s+/g, " ").trim()
+  var text = String(value || "").replace(/[<>&]/g, "").replace(/\s+/g, " ").trim()
   var maximum = Math.max(1, numberOr(limit, 32))
   return text.slice(0, maximum)
 }

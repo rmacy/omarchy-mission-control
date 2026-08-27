@@ -1,12 +1,13 @@
 import { execFile as execFileCallback, spawn } from "node:child_process"
-import { access, chmod, mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises"
+import { access, chmod, readFile, stat, unlink, writeFile } from "node:fs/promises"
 import { constants as fsConstants } from "node:fs"
 import { basename, resolve } from "node:path"
-import { promisify } from "node:util"
+import { prepareVisualOutput } from "./output-path.mjs"
 
 const execFile = promisify(execFileCallback)
 const root = resolve(new URL("../..", import.meta.url).pathname)
-const outputDir = resolve(process.env.MC_VISUAL_OUTPUT || process.argv[2] || `${root}/tests/live/output`)
+const requestedOutput = process.env.MC_VISUAL_OUTPUT || process.argv[2] || ""
+let outputDir = ""
 const inputHelper = resolve(process.env.MC_UINPUT || `${root}/.build/mc-uinput`)
 const statePath = `${process.env.HOME}/.local/state/omarchy/mission-control-spaces.json`
 const results = []
@@ -316,7 +317,7 @@ async function launchFixtures(count) {
       `--title=${title}`,
       "sh", "-lc",
       `printf '\\033[2J\\033[H${title}\\n\\nFixture window ${index}\\n'; exec sleep 600`
-    ], { stdio: "ignore", env: process.env })
+    ], { stdio: "ignore", env: process.env, detached: true })
     fixtures.push(child)
   }
   const clients = await waitFor(async () => {
@@ -358,16 +359,20 @@ async function writeReports() {
   }
 }
 
+function signalFixture(child, signal) {
+  if (child.exitCode !== null || child.signalCode !== null) return
+  try { process.kill(-child.pid, signal) }
+  catch {
+    try { child.kill(signal) } catch { }
+  }
+}
+
 async function cleanup() {
   if (!sessionStarted) return
   await shellCommand(["shell", "hide", "bitr0t.mission-control"], { allowFailure: true })
-  for (const child of fixtures) {
-    if (!child.killed) child.kill("SIGTERM")
-  }
+  for (const child of fixtures) signalFixture(child, "SIGTERM")
   await sleep(250)
-  for (const child of fixtures) {
-    if (!child.killed) child.kill("SIGKILL")
-  }
+  for (const child of fixtures) signalFixture(child, "SIGKILL")
   if (stateBackedUp) {
     let originalIds = []
     try {
@@ -394,9 +399,8 @@ async function main() {
   await access(inputHelper, fsConstants.X_OK)
   await access("/dev/uinput", fsConstants.W_OK)
   await shellCommand(["shell", "ping"])
-  await mkdir(outputDir, { recursive: true })
-  await rm(outputDir, { recursive: true, force: true })
-  await mkdir(outputDir, { recursive: true })
+  const preparedOutput = await prepareVisualOutput(root, requestedOutput)
+  outputDir = preparedOutput.outputDir
 
   try {
     originalState = await readFile(statePath)

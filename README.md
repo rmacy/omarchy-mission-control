@@ -214,7 +214,7 @@ MC_VISUAL_ALLOW_ACTIVE_SESSION=1 mise run visual-test
 WINDOW_SWITCHER_LIVE_TEST=1 mise run test-live
 ```
 
-The Mission Control suite builds a temporary `/dev/uinput` helper, launches isolated `foot` fixture windows, drives the real Mission Control surface, checks Hyprland/workspace/bar state, and restores the original workspace and managed-space file in cleanup. Evidence is written under `tests/live/output/`: `report.json`, an `index.html` gallery, a `contact-sheet.png`, and individual scenario PNGs. It requires write access to `/dev/uinput` plus `foot`, `grim`, ImageMagick, `hyprctl`, and `omarchy-shell`, and refuses to run outside Hyprland or without the opt-in acknowledgement.
+The Mission Control suite builds a temporary `/dev/uinput` helper, launches isolated `foot` fixture process groups, drives the real Mission Control surface, checks Hyprland/workspace/bar state, and restores the original workspace and managed-space file in cleanup. Each run creates a new sentinel-owned directory directly under `tests/live/output/`; it never removes or reuses an existing directory, and rejects output paths outside that root. The directory contains `report.json`, an `index.html` gallery, a `contact-sheet.png`, and scenario PNGs. The suite requires write access to `/dev/uinput` plus `foot`, `grim`, ImageMagick, `hyprctl`, and `omarchy-shell`, and refuses to run outside Hyprland or without the opt-in acknowledgement.
 
 Install a local checkout through the same plugin path used in production:
 
