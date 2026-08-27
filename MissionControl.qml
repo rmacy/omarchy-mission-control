@@ -29,6 +29,7 @@ Item {
     ? spaceService.managedWorkspaceIds : []
   readonly property bool spacesLoaded: !!spaceService && spaceService.spacesLoaded
   property int editingWorkspaceId: -1
+  property int desktopRevision: 0
   property bool opened: false
   property real revealProgress: 0
   property int targetMonitorId: -1
@@ -76,6 +77,7 @@ Item {
   }
 
   function desktopWindows(workspaceId) {
+    var revision = root.desktopRevision
     return WindowModel.desktopToplevels(
       Hyprland.toplevels.values, Number(workspaceId), root.targetMonitorId)
   }
@@ -508,7 +510,9 @@ Item {
         rect: root.interactionRect(space),
         removeRect: root.interactionRect(space.removeButtonItem),
         renameRect: root.interactionRect(space.renameButtonItem),
-        name: String(space.displayName || "")
+        name: String(space.displayName || ""),
+        windowCount: Number(space.windowCount),
+        renderedWindowCount: Number(space.renderedWindowCount)
       })
     }
 
@@ -545,14 +549,20 @@ Item {
   Connections {
     target: Hyprland
     function onRawEvent(_event) {
-      if (root.opened) refreshTimer.restart()
+      if (root.opened) {
+        refreshTimer.restart()
+        desktopRefreshTimer.restart()
+      }
     }
   }
 
   Connections {
     target: Hyprland.toplevels
     function onValuesChanged() {
-      if (root.opened) refreshTimer.restart()
+      if (root.opened) {
+        refreshTimer.restart()
+        desktopRefreshTimer.restart()
+      }
     }
   }
 
@@ -570,6 +580,13 @@ Item {
     interval: 45
     repeat: false
     onTriggered: if (root.opened) root.refreshOverview()
+  }
+
+  Timer {
+    id: desktopRefreshTimer
+    interval: 120
+    repeat: false
+    onTriggered: if (root.opened) root.desktopRevision += 1
   }
 
   Timer {
@@ -611,6 +628,7 @@ Item {
       Hyprland.refreshWorkspaces()
       Hyprland.refreshToplevels()
       refreshTimer.restart()
+      desktopRefreshTimer.restart()
     }
   }
 
@@ -769,6 +787,7 @@ Item {
                   || ("Space " + modelData)
                 readonly property bool selected: modelData === root.selectedWorkspaceId
                 readonly property int windowCount: root.workspaceWindowCount(modelData)
+                readonly property int renderedWindowCount: thumbnailWindowRepeater.count
                 readonly property bool windowDropTarget: (root.windowDragActive
                   || root.windowDropAnimating) && root.windowDropWorkspaceId === modelData
                 property bool hovered: false
@@ -809,6 +828,7 @@ Item {
                   }
 
                   Repeater {
+                    id: thumbnailWindowRepeater
                     model: root.desktopWindows(workspaceChip.modelData)
 
                     Item {

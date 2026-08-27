@@ -680,8 +680,18 @@ async function main() {
   await sleep(600)
   const swappedA = addressA ? (await clientByAddress(addressA))?.workspace?.id : -1
   const swappedB = addressB ? (await clientByAddress(addressB))?.workspace?.id : -1
-  record("Space drag swaps positions and renumbers", swappedA === fixtureB && swappedB === fixtureA,
-    `A ${swappedA}, B ${swappedB}`, await capture("space-reorder", "Space reorder"))
+  const reorderImage = await capture("space-reorder", "Space reorder")
+  record("Space drag swaps positions and renumbers",
+    swappedA === fixtureB && swappedB === fixtureA,
+    `A ${swappedA}, B ${swappedB}`, reorderImage)
+  const reorderGeometry = await geometry()
+  const renderedA = reorderGeometry.spaces.find(space => space.id === fixtureA)
+  const renderedB = reorderGeometry.spaces.find(space => space.id === fixtureB)
+  record("Reordered desktop thumbnails keep rendering windows",
+    renderedA?.renderedWindowCount > 0 && renderedB?.renderedWindowCount > 0,
+    `A ${renderedA?.renderedWindowCount || 0}/${renderedA?.windowCount || 0}, `
+      + `B ${renderedB?.renderedWindowCount || 0}/${renderedB?.windowCount || 0}`,
+    reorderImage)
   const reorderSync = await synchronizedSpaceState()
   record("Reordered space IDs stay synchronized everywhere",
     reorderSync.synchronized, JSON.stringify(reorderSync),
