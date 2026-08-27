@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "bitr0t.mission-control",
   "name": "Mission Control",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "author": "Ryan Macy",
   "description": "macOS-style workspace and window overview with dynamic bar spaces, plus a themed Alt-Tab switcher for the active workspace, in one Omarchy shell plugin.",
   "kinds": [

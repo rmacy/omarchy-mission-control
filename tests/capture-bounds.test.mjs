@@ -11,8 +11,9 @@ test("overview and workspace thumbnail models have explicit bounds", () => {
   assert.match(qml, /WindowModel\.workspaceThumbnailCaptureModel\(/)
 })
 
-test("space rail bounds duplicate live captures and discloses omitted windows", () => {
-  assert.match(qml, /id:\s*thumbnailWindowRepeater[\s\S]{0,700}?ScreencopyView\s*\{[\s\S]{0,180}?live:\s*root\.opened && workspaceChip\.selected/)
+test("space rail staggers bounded one-shot captures and discloses omissions", () => {
+  assert.match(qml, /captureSource:\s*root\.thumbnailCapturesEnabled[\s\S]*?workspaceChip\.index < root\.thumbnailWorkspaceBudget[\s\S]*?live:\s*false/)
+  assert.match(qml, /id:\s*thumbnailCaptureBatchTimer[\s\S]*?thumbnailWorkspaceBudget \+= 1/)
   assert.match(qml, /renderedWindowCount < workspaceChip\.windowCount/)
   assert.match(qml, /previewModel\.omittedCount/)
 })

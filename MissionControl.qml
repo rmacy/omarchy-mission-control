@@ -34,6 +34,8 @@ Item {
   property bool opened: false
   property bool closing: false
   property real revealProgress: 0
+  property bool thumbnailCapturesEnabled: false
+  property int thumbnailWorkspaceBudget: 0
   property int targetMonitorId: -1
   property string targetMonitorName: ""
   property int selectedWorkspaceId: -1
@@ -81,8 +83,8 @@ Item {
   Behavior on revealProgress {
     enabled: root.opened
     NumberAnimation {
-      duration: root.closing ? 190 : 310
-      easing.type: root.closing ? Easing.InCubic : Easing.OutExpo
+      duration: root.closing ? 160 : 240
+      easing.type: root.closing ? Easing.InOutCubic : Easing.OutCubic
     }
   }
 
@@ -146,7 +148,7 @@ Item {
   }
 
   function refreshBackgroundSource() {
-    if (!root.opened || !root.backgroundResolverPath
+    if (!root.opened || root.closing || !root.backgroundResolverPath
         || !root.targetMonitorName || backgroundSourceProcess.running) return
     backgroundSourceProcess.requestGeneration = root.backgroundRequestGeneration
     backgroundSourceProcess.requestedMonitor = root.targetMonitorName
@@ -218,26 +220,11 @@ Item {
     var sourceAspect = Number(sourceSize[0]) / Number(sourceSize[1])
     if (!isFinite(sourceAspect) || sourceAspect <= 0) sourceAspect = 16 / 10
 
-    var sourceAt = metadata.at || []
-    var monitor = root.overviewMonitor
-    var sourceX = Number(sourceAt[0]) - Number(monitor ? monitor.x : 0)
-    var sourceY = Number(sourceAt[1]) - Number(monitor ? monitor.y : 0)
-    var sourceWidth = Number(sourceSize[0])
-    var sourceHeight = Number(sourceSize[1])
-    var hasSourceGeometry = isFinite(sourceX) && isFinite(sourceY)
-      && isFinite(sourceWidth) && sourceWidth > 0
-      && isFinite(sourceHeight) && sourceHeight > 0
-
     return {
       toplevel: toplevel,
       captureSource: toplevel.wayland,
       address: String(toplevel.address || metadata.address || ""),
       aspect: sourceAspect,
-      sourceX: hasSourceGeometry ? sourceX : 0,
-      sourceY: hasSourceGeometry ? sourceY : 0,
-      sourceWidth: hasSourceGeometry ? sourceWidth : 0,
-      sourceHeight: hasSourceGeometry ? sourceHeight : 0,
-      hasSourceGeometry: hasSourceGeometry,
       appName: appName,
       title: WindowModel.shortenedTitle(toplevel.title || metadata.title || appName, 120),
       iconSource: root.appLibrary
@@ -295,7 +282,7 @@ Item {
 
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (_error) { payload = ({}) }
-    var wasVisible = root.opened && !root.closing
+    var wasVisible = root.opened
     closeAnimationTimer.stop()
     root.closing = false
 
@@ -312,13 +299,21 @@ Item {
     root.backgroundRequestGeneration += 1
     backgroundPollTimer.restart()
     root.refreshBackgroundSource()
-    if (!wasVisible) root.revealProgress = 0
+    if (!wasVisible) {
+      root.thumbnailCapturesEnabled = false
+      root.thumbnailWorkspaceBudget = 0
+      thumbnailCaptureTimer.stop()
+      thumbnailCaptureBatchTimer.stop()
+      root.revealProgress = 0
+    }
     root.refreshOverview()
 
     Qt.callLater(function() {
       if (!root.opened || root.closing) return
-      root.refreshOverview()
       root.revealProgress = 1
+      if (!root.thumbnailCapturesEnabled) thumbnailCaptureTimer.restart()
+      else if (root.thumbnailWorkspaceBudget < root.workspaceIds.length)
+        thumbnailCaptureBatchTimer.restart()
       keyScope.forceActiveFocus()
     })
     return "ok"
@@ -335,8 +330,11 @@ Item {
   function finishClose() {
     sharedVideoPlayer.stop()
     backgroundPollTimer.stop()
+    thumbnailCaptureBatchTimer.stop()
     root.backgroundRequestGeneration += 1
     if (backgroundSourceProcess.running) backgroundSourceProcess.running = false
+    root.thumbnailCapturesEnabled = false
+    root.thumbnailWorkspaceBudget = 0
     root.opened = false
     root.closing = false
     root.windows = []
@@ -357,6 +355,10 @@ Item {
     if (!root.opened || root.closing) return
     root.editingWorkspaceId = -1
     root.windowDragActive = false
+    thumbnailCaptureTimer.stop()
+    thumbnailCaptureBatchTimer.stop()
+    refreshTimer.stop()
+    desktopRefreshTimer.stop()
     windowDropTimer.stop()
     windowDropCleanupTimer.stop()
     root.closing = true
@@ -390,7 +392,8 @@ Item {
       return []
     }
     var next = root.spaceService.setManagedSpaces(values)
-    if (root.opened) Qt.callLater(function() { root.refreshOverview() })
+    if (root.opened && !root.closing)
+      Qt.callLater(function() { root.refreshOverview() })
     return next
   }
 
@@ -541,7 +544,7 @@ Item {
     if (index < 0 || index >= root.windows.length) return
     var toplevel = root.windows[index].captureSource
     if (toplevel) toplevel.close()
-    refreshTimer.restart()
+    if (root.opened && !root.closing) refreshTimer.restart()
   }
 
   function moveWindowToWorkspace(toplevel, workspaceId) {
@@ -682,7 +685,7 @@ Item {
   Connections {
     target: Hyprland
     function onRawEvent(_event) {
-      if (root.opened) {
+      if (root.opened && !root.closing) {
         refreshTimer.restart()
         desktopRefreshTimer.restart()
       }
@@ -692,7 +695,7 @@ Item {
   Connections {
     target: Hyprland.toplevels
     function onValuesChanged() {
-      if (root.opened) {
+      if (root.opened && !root.closing) {
         refreshTimer.restart()
         desktopRefreshTimer.restart()
       }
@@ -702,7 +705,7 @@ Item {
   Connections {
     target: Hyprland.workspaces
     function onValuesChanged() {
-      if (root.opened) refreshTimer.restart()
+      if (root.opened && !root.closing) refreshTimer.restart()
     }
   }
 
@@ -717,23 +720,49 @@ Item {
 
   Timer {
     id: closeAnimationTimer
-    interval: 220
+    interval: 190
     repeat: false
     onTriggered: root.finishClose()
+  }
+
+  Timer {
+    id: thumbnailCaptureTimer
+    interval: 270
+    repeat: false
+    onTriggered: {
+      if (!root.opened || root.closing) return
+      root.thumbnailCapturesEnabled = true
+      root.thumbnailWorkspaceBudget = 0
+      thumbnailCaptureBatchTimer.restart()
+    }
+  }
+
+  Timer {
+    id: thumbnailCaptureBatchTimer
+    interval: 90
+    repeat: true
+    onTriggered: {
+      if (!root.opened || root.closing
+          || root.thumbnailWorkspaceBudget >= root.workspaceIds.length) {
+        stop()
+        return
+      }
+      root.thumbnailWorkspaceBudget += 1
+    }
   }
 
   Timer {
     id: refreshTimer
     interval: 45
     repeat: false
-    onTriggered: if (root.opened) root.refreshOverview()
+    onTriggered: if (root.opened && !root.closing) root.refreshOverview()
   }
 
   Timer {
     id: desktopRefreshTimer
     interval: 120
     repeat: false
-    onTriggered: if (root.opened) root.desktopRevision += 1
+    onTriggered: if (root.opened && !root.closing) root.desktopRevision += 1
   }
 
   Timer {
@@ -772,10 +801,12 @@ Item {
         console.warn("bitr0t.mission-control: failed to " + operation
           + " (exit " + exitCode + ")" + (detail ? ": " + detail : ""))
       }
-      Hyprland.refreshWorkspaces()
-      Hyprland.refreshToplevels()
-      refreshTimer.restart()
-      desktopRefreshTimer.restart()
+      if (root.opened && !root.closing) {
+        Hyprland.refreshWorkspaces()
+        Hyprland.refreshToplevels()
+        refreshTimer.restart()
+        desktopRefreshTimer.restart()
+      }
     }
   }
 
@@ -786,9 +817,12 @@ Item {
     stdout: StdioCollector { id: backgroundSourceStdout; waitForEnd: true }
     stderr: StdioCollector { id: backgroundSourceStderr; waitForEnd: true }
     onExited: function(exitCode) {
-      if (!root.opened
-          || requestGeneration !== root.backgroundRequestGeneration
-          || requestedMonitor !== root.targetMonitorName) return
+      if (!root.opened || root.closing) return
+      if (requestGeneration !== root.backgroundRequestGeneration
+          || requestedMonitor !== root.targetMonitorName) {
+        Qt.callLater(function() { root.refreshBackgroundSource() })
+        return
+      }
       if (exitCode !== 0) {
         var detail = String(
           backgroundSourceStderr.text || backgroundSourceStdout.text || "").trim()
@@ -808,7 +842,8 @@ Item {
 
   MediaPlayer {
     id: sharedVideoPlayer
-    source: root.opened && root.backgroundKind === "video" && root.backgroundPath
+    source: root.opened && root.thumbnailCapturesEnabled
+      && root.backgroundKind === "video" && root.backgroundPath
       ? Util.fileUrl(root.backgroundPath) : ""
     videoOutput: sharedVideoOutput
     activeAudioTrack: -1
@@ -817,7 +852,7 @@ Item {
       volume: 0
     }
     loops: MediaPlayer.Infinite
-    autoPlay: true
+    autoPlay: root.thumbnailCapturesEnabled
     onErrorOccurred: function(error, errorString) {
       if (error !== MediaPlayer.NoError)
         console.warn("bitr0t.mission-control: video wallpaper failed: " + errorString)
@@ -842,7 +877,7 @@ Item {
       anchors.fill: parent
       focus: root.opened
       opacity: root.revealProgress
-      scale: 0.99 + root.revealProgress * 0.01
+      scale: 1
 
       Keys.priority: Keys.BeforeItem
       Keys.onPressed: function(event) {
@@ -924,9 +959,9 @@ Item {
           anchors.top: parent.top
           anchors.horizontalCenter: parent.horizontalCenter
           spacing: Math.max(Style.spacing.xs, 4)
-          opacity: Math.min(1, root.revealProgress * 1.35)
-          scale: 0.92 + root.revealProgress * 0.08
-          transform: Translate { y: -32 * (1 - root.revealProgress) }
+          opacity: 1
+          scale: 1
+          transform: Translate { y: -18 * (1 - root.revealProgress) }
 
           Text {
             anchors.horizontalCenter: parent.horizontalCenter
@@ -949,9 +984,9 @@ Item {
 
         Rectangle {
           id: workspaceRail
-          opacity: root.revealProgress
-          scale: 0.88 + root.revealProgress * 0.12
-          transform: Translate { y: -46 * (1 - root.revealProgress) }
+          opacity: 1
+          scale: 1
+          transform: Translate { y: -22 * (1 - root.revealProgress) }
           readonly property real monitorAspect: root.overviewMonitor
             && root.overviewMonitor.height > 0
             ? root.overviewMonitor.width / root.overviewMonitor.height : 16 / 9
@@ -1011,8 +1046,8 @@ Item {
                   ? root.selectedBorderColor : Util.alpha(root.borderColor, 0.7)
                 border.width: windowDropTarget ? 3 : (selected ? 2 : 1)
                 z: root.dragActive && root.dragFromIndex === index ? 20 : 1
-                scale: windowDropTarget ? 1.06
-                  : (root.dragActive && root.dragFromIndex === index ? 1.04 : 1)
+                scale: windowDropTarget ? 1.02
+                  : (root.dragActive && root.dragFromIndex === index ? 1.02 : 1)
                 transform: Translate { x: workspaceChip.dragOffset }
 
                 Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
@@ -1039,13 +1074,19 @@ Item {
 
                   ShaderEffectSource {
                     anchors.fill: parent
-                    visible: root.videoFrameReady
-                    sourceItem: root.opened && root.backgroundKind === "video"
+                    visible: root.videoFrameReady && root.thumbnailCapturesEnabled
+                      && (workspaceChip.selected
+                        || workspaceChip.index < root.thumbnailWorkspaceBudget)
+                    sourceItem: root.opened && root.thumbnailCapturesEnabled
+                      && root.backgroundKind === "video"
+                      && (workspaceChip.selected
+                        || workspaceChip.index < root.thumbnailWorkspaceBudget)
                       ? sharedVideoOutput : null
                     sourceRect: Qt.rect(
                       0, 0, sharedVideoOutput.width, sharedVideoOutput.height)
                     hideSource: true
-                    live: visible
+                    live: false
+                    onVisibleChanged: if (visible) scheduleUpdate()
                     smooth: true
                   }
 
@@ -1072,8 +1113,11 @@ Item {
 
                       ScreencopyView {
                         anchors.fill: parent
-                        captureSource: thumbnailWindow.modelData.wayland
-                        live: root.opened && workspaceChip.selected
+                        captureSource: root.thumbnailCapturesEnabled
+                          && (workspaceChip.selected
+                            || workspaceChip.index < root.thumbnailWorkspaceBudget)
+                          ? thumbnailWindow.modelData.wayland : null
+                        live: false
                         paintCursor: false
                       }
 
@@ -1436,29 +1480,12 @@ Item {
               }
               readonly property int column: root.gridColumns > 0 ? index % root.gridColumns : 0
               readonly property int row: root.gridColumns > 0 ? Math.floor(index / root.gridColumns) : 0
-              readonly property var gridOrigin: windowGrid.mapToItem(keyScope, 0, 0)
-              readonly property real motionDelay: Math.min(index, 7) * 0.022
-              readonly property real motionProgress: Math.max(0, Math.min(1,
-                (root.revealProgress - motionDelay) / Math.max(0.01, 1 - motionDelay)))
-              readonly property real sourceCenterX: Number(modelData.sourceX)
-                + Number(modelData.sourceWidth) / 2
-              readonly property real sourceCenterY: Number(modelData.sourceY)
-                + Number(modelData.sourceHeight) / 2
-              readonly property real targetCenterX: gridOrigin.x + x + windowCard.x
-                + windowCard.width / 2
-              readonly property real targetCenterY: gridOrigin.y + y + windowCard.y
-                + windowCard.height / 2
-              readonly property real revealOffsetX: modelData.hasSourceGeometry
-                ? (sourceCenterX - targetCenterX) * (1 - motionProgress) : 0
-              readonly property real revealOffsetY: modelData.hasSourceGeometry
-                ? (sourceCenterY - targetCenterY) * (1 - motionProgress) : 0
-              readonly property real sourceScale: modelData.hasSourceGeometry
-                ? Math.max(0.55, Math.min(2.4, Math.min(
-                    Number(modelData.sourceWidth) / Math.max(1, windowCard.width),
-                    Number(modelData.sourceHeight) / Math.max(1, windowCard.height))))
-                : 1
-              readonly property real revealScale: 1
-                + (sourceScale - 1) * (1 - motionProgress)
+              readonly property real motionProgress: root.revealProgress
+              readonly property real revealOffsetX: root.gridColumns > 1
+                ? (column - (root.gridColumns - 1) / 2) * 10 * (1 - motionProgress)
+                : 0
+              readonly property real revealOffsetY: 30 * (1 - motionProgress)
+              readonly property real revealScale: 0.9 + 0.1 * motionProgress
 
               x: column * (root.cellWidth + root.gridSpacing)
               y: row * (root.cellHeight + root.gridSpacing)
@@ -1500,14 +1527,14 @@ Item {
                 border.color: windowCell.selected ? root.selectedBorderColor : root.borderColor
                 border.width: windowCell.selected ? 3 : 1
                 scale: windowCell.beingDragged ? windowCell.dragScale
-                  : (windowCell.selected ? 1 : (windowCell.hovered ? 0.99 : 0.965))
-                opacity: (root.windowDropAnimating && windowCell.beingDragged
+                  : (windowCell.selected ? 1 : (windowCell.hovered ? 0.992 : 0.985))
+                opacity: root.windowDropAnimating && windowCell.beingDragged
                   ? 0.28
                   : (windowCell.beingDragged || windowCell.selected || windowCell.hovered
-                    ? 1 : 0.82)) * Math.max(0.04, windowCell.motionProgress)
+                    ? 1 : 0.88)
 
                 Behavior on scale {
-                  NumberAnimation { duration: 220; easing.type: Easing.OutBack }
+                  NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
                 }
                 Behavior on color { ColorAnimation { duration: 180 } }
 
@@ -1529,7 +1556,8 @@ Item {
                   ScreencopyView {
                     id: preview
                     captureSource: windowCell.modelData.captureSource
-                    live: root.opened
+                    live: root.opened && !root.closing
+                      && root.revealProgress >= 1
                     paintCursor: false
                     readonly property real sourceAspect: sourceSize.height > 0
                       ? sourceSize.width / sourceSize.height : 16 / 10
@@ -1558,6 +1586,7 @@ Item {
                     border.color: Util.alpha(root.borderColor, 0.75)
                     border.width: 1
                   }
+
                 }
 
                 Item {
