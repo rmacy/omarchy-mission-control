@@ -107,7 +107,7 @@ BarWidget {
 
         bar: root.bar
         text: customName || (focused ? "\uDB85\uDCFB" : (modelData === 10 ? "0" : String(modelData)))
-        opacity: occupied || focused ? 1 : 0.5
+        opacity: customName || occupied || focused ? 1 : 0.5
         horizontalMargin: 6
         verticalPadding: 6
         fixedWidth: root.vertical ? root.barSize

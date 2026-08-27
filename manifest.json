@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "bitr0t.mission-control",
   "name": "Mission Control",
-  "version": "2.3.2",
+  "version": "2.3.3",
   "author": "Ryan Macy",
   "description": "Live workspace and window overview for Omarchy, opened by Control+Up or a three-finger upward swipe, plus a bar widget that mirrors its dynamic spaces.",
   "kinds": [

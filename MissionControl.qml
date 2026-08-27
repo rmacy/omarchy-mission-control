@@ -865,29 +865,46 @@ Item {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
-                    height: Math.min(24, parent.height * 0.34)
-                    color: Util.alpha(root.backgroundColor, 0.82)
+                    height: Math.min(44, Math.max(34, parent.height * 0.36))
+                    color: Util.alpha(root.backgroundColor, 0.94)
                     z: 5
 
+                    Rectangle {
+                      anchors.top: parent.top
+                      anchors.left: parent.left
+                      anchors.right: parent.right
+                      height: 1
+                      color: Util.alpha(root.borderColor, 0.75)
+                    }
+
                     Row {
-                      anchors.centerIn: parent
-                      spacing: 6
+                      anchors.fill: parent
+                      anchors.leftMargin: 12
+                      anchors.rightMargin: 12
+                      spacing: 10
 
                       Text {
+                        width: Math.max(0, parent.width - windowCountLabel.width - parent.spacing)
+                        anchors.verticalCenter: parent.verticalCenter
                         text: workspaceChip.displayName
-                        color: workspaceChip.selected
-                          ? root.selectedTextColor : root.foregroundColor
+                        color: root.foregroundColor
                         font.family: Style.font.menuFamily
-                        font.pixelSize: Style.font.caption
-                        font.weight: Font.DemiBold
+                        font.pixelSize: workspaceChip.customName
+                          ? Math.max(Style.font.title, 18)
+                          : Math.max(Style.font.body, 14)
+                        font.weight: workspaceChip.customName ? Font.Bold : Font.DemiBold
+                        elide: Text.ElideRight
                       }
 
                       Text {
-                        text: workspaceChip.windowCount
+                        id: windowCountLabel
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: workspaceChip.windowCount === 1
+                          ? "1 window" : workspaceChip.windowCount + " windows"
                         color: root.foregroundColor
-                        opacity: 0.55
+                        opacity: 0.68
                         font.family: Style.font.menuFamily
-                        font.pixelSize: Style.font.caption
+                        font.pixelSize: Math.max(Style.font.caption, 12)
                       }
                     }
                   }
