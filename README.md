@@ -14,6 +14,7 @@ As of 3.0.0 the former standalone Alt-Tab plugin (`bitr0t.window-switcher`) is m
 - Persistent custom space names shared by Mission Control and the Omarchy bar
 - Drag a window onto a space card to move it to another space
 - Themed, translucent macOS-style Alt-Tab switcher cycling the active workspace of the focused monitor, ordered by Hyprland focus history
+- macOS-style opening, closing, window-flight, space-rail, and selection animations
 - Focuses the monitor that was active when the overview opened
 - Uses Omarchy's active colors, typography, and application icons
 - Restores the user's normal Hyprland configuration when disabled or removed
@@ -80,10 +81,12 @@ The command re-adds `omarchy.workspaces` to the bar's left section (or use the b
 
 ## Use — Mission Control
 
-Open or close Mission Control with either trigger:
+Open Mission Control with:
 
 - `Control + Up`
 - Three-finger swipe up
+
+Close it with `Control + Down`, `Escape`, or `Q`.
 
 Inside the overview:
 

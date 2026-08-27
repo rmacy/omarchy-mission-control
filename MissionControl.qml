@@ -32,6 +32,7 @@ Item {
   property int editingWorkspaceId: -1
   property int desktopRevision: 0
   property bool opened: false
+  property bool closing: false
   property real revealProgress: 0
   property int targetMonitorId: -1
   property string targetMonitorName: ""
@@ -76,6 +77,14 @@ Item {
     : (windowGrid.width - (root.gridColumns - 1) * root.gridSpacing) / root.gridColumns
   readonly property real cellHeight: root.gridRows === 0 ? 0
     : (windowGrid.height - (root.gridRows - 1) * root.gridSpacing) / root.gridRows
+
+  Behavior on revealProgress {
+    enabled: root.opened
+    NumberAnimation {
+      duration: root.closing ? 190 : 310
+      easing.type: root.closing ? Easing.InCubic : Easing.OutExpo
+    }
+  }
 
   function monitorScreen(name) {
     var screens = Quickshell.screens || []
@@ -209,11 +218,26 @@ Item {
     var sourceAspect = Number(sourceSize[0]) / Number(sourceSize[1])
     if (!isFinite(sourceAspect) || sourceAspect <= 0) sourceAspect = 16 / 10
 
+    var sourceAt = metadata.at || []
+    var monitor = root.overviewMonitor
+    var sourceX = Number(sourceAt[0]) - Number(monitor ? monitor.x : 0)
+    var sourceY = Number(sourceAt[1]) - Number(monitor ? monitor.y : 0)
+    var sourceWidth = Number(sourceSize[0])
+    var sourceHeight = Number(sourceSize[1])
+    var hasSourceGeometry = isFinite(sourceX) && isFinite(sourceY)
+      && isFinite(sourceWidth) && sourceWidth > 0
+      && isFinite(sourceHeight) && sourceHeight > 0
+
     return {
       toplevel: toplevel,
       captureSource: toplevel.wayland,
       address: String(toplevel.address || metadata.address || ""),
       aspect: sourceAspect,
+      sourceX: hasSourceGeometry ? sourceX : 0,
+      sourceY: hasSourceGeometry ? sourceY : 0,
+      sourceWidth: hasSourceGeometry ? sourceWidth : 0,
+      sourceHeight: hasSourceGeometry ? sourceHeight : 0,
+      hasSourceGeometry: hasSourceGeometry,
       appName: appName,
       title: WindowModel.shortenedTitle(toplevel.title || metadata.title || appName, 120),
       iconSource: root.appLibrary
@@ -271,6 +295,9 @@ Item {
 
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (_error) { payload = ({}) }
+    var wasVisible = root.opened && !root.closing
+    closeAnimationTimer.stop()
+    root.closing = false
 
     root.targetMonitorId = Number(monitor.id)
     root.targetMonitorName = String(monitor.name || "")
@@ -285,11 +312,11 @@ Item {
     root.backgroundRequestGeneration += 1
     backgroundPollTimer.restart()
     root.refreshBackgroundSource()
-    root.revealProgress = 0
+    if (!wasVisible) root.revealProgress = 0
     root.refreshOverview()
 
     Qt.callLater(function() {
-      if (!root.opened) return
+      if (!root.opened || root.closing) return
       root.refreshOverview()
       root.revealProgress = 1
       keyScope.forceActiveFocus()
@@ -298,20 +325,20 @@ Item {
   }
 
   function toggle(payloadJson) {
-    if (root.opened) {
+    if (root.opened && !root.closing) {
       root.close()
       return "closed"
     }
     return root.open(payloadJson || "{}")
   }
 
-  function close() {
+  function finishClose() {
     sharedVideoPlayer.stop()
     backgroundPollTimer.stop()
     root.backgroundRequestGeneration += 1
     if (backgroundSourceProcess.running) backgroundSourceProcess.running = false
-    root.revealProgress = 0
     root.opened = false
+    root.closing = false
     root.windows = []
     root.totalWindowCount = 0
     root.workspaceIds = []
@@ -324,8 +351,17 @@ Item {
     root.windowDropAnimating = false
     root.pendingWindowToplevel = null
     root.pendingWindowWorkspaceId = -1
+  }
+
+  function close() {
+    if (!root.opened || root.closing) return
+    root.editingWorkspaceId = -1
+    root.windowDragActive = false
     windowDropTimer.stop()
     windowDropCleanupTimer.stop()
+    root.closing = true
+    root.revealProgress = 0
+    closeAnimationTimer.restart()
   }
 
   function selectWorkspace(workspaceId) {
@@ -554,6 +590,8 @@ Item {
   function status(_argument) {
     return JSON.stringify({
       open: root.opened,
+      closing: root.closing,
+      revealProgress: root.revealProgress,
       monitor: root.targetMonitorName,
       workspace: root.selectedWorkspaceId,
       workspaceCount: root.workspaceIds.length,
@@ -623,6 +661,8 @@ Item {
 
     return JSON.stringify({
       open: root.opened,
+      closing: root.closing,
+      revealProgress: root.revealProgress,
       width: keyScope.width,
       height: keyScope.height,
       selectedWorkspaceId: root.selectedWorkspaceId,
@@ -673,6 +713,13 @@ Item {
     interval: 5000
     repeat: true
     onTriggered: root.refreshBackgroundSource()
+  }
+
+  Timer {
+    id: closeAnimationTimer
+    interval: 220
+    repeat: false
+    onTriggered: root.finishClose()
   }
 
   Timer {
@@ -795,10 +842,7 @@ Item {
       anchors.fill: parent
       focus: root.opened
       opacity: root.revealProgress
-      scale: 0.975 + root.revealProgress * 0.025
-
-      Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-      Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+      scale: 0.99 + root.revealProgress * 0.01
 
       Keys.priority: Keys.BeforeItem
       Keys.onPressed: function(event) {
@@ -880,6 +924,9 @@ Item {
           anchors.top: parent.top
           anchors.horizontalCenter: parent.horizontalCenter
           spacing: Math.max(Style.spacing.xs, 4)
+          opacity: Math.min(1, root.revealProgress * 1.35)
+          scale: 0.92 + root.revealProgress * 0.08
+          transform: Translate { y: -32 * (1 - root.revealProgress) }
 
           Text {
             anchors.horizontalCenter: parent.horizontalCenter
@@ -902,6 +949,9 @@ Item {
 
         Rectangle {
           id: workspaceRail
+          opacity: root.revealProgress
+          scale: 0.88 + root.revealProgress * 0.12
+          transform: Translate { y: -46 * (1 - root.revealProgress) }
           readonly property real monitorAspect: root.overviewMonitor
             && root.overviewMonitor.height > 0
             ? root.overviewMonitor.width / root.overviewMonitor.height : 16 / 9
@@ -1386,6 +1436,29 @@ Item {
               }
               readonly property int column: root.gridColumns > 0 ? index % root.gridColumns : 0
               readonly property int row: root.gridColumns > 0 ? Math.floor(index / root.gridColumns) : 0
+              readonly property var gridOrigin: windowGrid.mapToItem(keyScope, 0, 0)
+              readonly property real motionDelay: Math.min(index, 7) * 0.022
+              readonly property real motionProgress: Math.max(0, Math.min(1,
+                (root.revealProgress - motionDelay) / Math.max(0.01, 1 - motionDelay)))
+              readonly property real sourceCenterX: Number(modelData.sourceX)
+                + Number(modelData.sourceWidth) / 2
+              readonly property real sourceCenterY: Number(modelData.sourceY)
+                + Number(modelData.sourceHeight) / 2
+              readonly property real targetCenterX: gridOrigin.x + x + windowCard.x
+                + windowCard.width / 2
+              readonly property real targetCenterY: gridOrigin.y + y + windowCard.y
+                + windowCard.height / 2
+              readonly property real revealOffsetX: modelData.hasSourceGeometry
+                ? (sourceCenterX - targetCenterX) * (1 - motionProgress) : 0
+              readonly property real revealOffsetY: modelData.hasSourceGeometry
+                ? (sourceCenterY - targetCenterY) * (1 - motionProgress) : 0
+              readonly property real sourceScale: modelData.hasSourceGeometry
+                ? Math.max(0.55, Math.min(2.4, Math.min(
+                    Number(modelData.sourceWidth) / Math.max(1, windowCard.width),
+                    Number(modelData.sourceHeight) / Math.max(1, windowCard.height))))
+                : 1
+              readonly property real revealScale: 1
+                + (sourceScale - 1) * (1 - motionProgress)
 
               x: column * (root.cellWidth + root.gridSpacing)
               y: row * (root.cellHeight + root.gridSpacing)
@@ -1404,10 +1477,22 @@ Item {
                   Math.max(0, parent.height - Math.max(Style.space(8), 8)),
                   Math.max(chromeHeight + 80, (width - Math.max(Style.space(16), 16))
                     / previewAspect + chromeHeight))
-                transform: Translate {
-                  x: windowCell.dragOffsetX
-                  y: windowCell.dragOffsetY
-                }
+                transform: [
+                  Translate {
+                    x: windowCell.revealOffsetX
+                    y: windowCell.revealOffsetY
+                  },
+                  Scale {
+                    origin.x: windowCard.width / 2
+                    origin.y: windowCard.height / 2
+                    xScale: windowCell.revealScale
+                    yScale: windowCell.revealScale
+                  },
+                  Translate {
+                    x: windowCell.dragOffsetX
+                    y: windowCell.dragOffsetY
+                  }
+                ]
                 radius: Math.max(Style.cornerRadius, 18)
                 color: windowCell.selected
                   ? Util.alpha(root.selectedColor, 0.92)
@@ -1416,14 +1501,15 @@ Item {
                 border.width: windowCell.selected ? 3 : 1
                 scale: windowCell.beingDragged ? windowCell.dragScale
                   : (windowCell.selected ? 1 : (windowCell.hovered ? 0.99 : 0.965))
-                opacity: root.windowDropAnimating && windowCell.beingDragged
+                opacity: (root.windowDropAnimating && windowCell.beingDragged
                   ? 0.28
                   : (windowCell.beingDragged || windowCell.selected || windowCell.hovered
-                    ? 1 : 0.82)
+                    ? 1 : 0.82)) * Math.max(0.04, windowCell.motionProgress)
 
-                Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                Behavior on opacity { NumberAnimation { duration: 120 } }
-                Behavior on color { ColorAnimation { duration: 120 } }
+                Behavior on scale {
+                  NumberAnimation { duration: 220; easing.type: Easing.OutBack }
+                }
+                Behavior on color { ColorAnimation { duration: 180 } }
 
                 Item {
                   id: previewFrame

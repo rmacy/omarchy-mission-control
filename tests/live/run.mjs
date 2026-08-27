@@ -439,6 +439,30 @@ async function main() {
     hotkeyOpen ? await capture("hotkey-open", "Control+Up opens Mission Control") : null)
   if (!hotkeyOpen) throw new Error("Control+Up failed to open Mission Control")
 
+  await input("chord", "ctrl", "down")
+  const closingState = await waitFor(async () => {
+    const value = await status()
+    return value.closing ? value : null
+  }, 1000).catch(() => null)
+  const hotkeyClosed = await waitFor(async () => !(await status()).open)
+  const closeImage = await capture("hotkey-close", "Control+Down closes Mission Control")
+  record("Control+Down starts the exit animation", !!closingState,
+    closingState ? `progress ${closingState.revealProgress}` : "closing state not observed", closeImage)
+  record("Global Control+Down closes Mission Control", hotkeyClosed,
+    "closed", closeImage)
+
+  await ensureOpen(fixtureA)
+  await input("chord", "ctrl", "down")
+  await sleep(50)
+  await input("chord", "ctrl", "up")
+  const interruptedClose = await waitFor(async () => {
+    const value = await status()
+    return value.open && !value.closing && value.revealProgress > 0.9 ? value : null
+  })
+  record("Control+Up reverses an in-flight close animation", !!interruptedClose,
+    `progress ${interruptedClose.revealProgress}`,
+    await capture("close-interrupted", "Close animation interrupted by Control+Up"))
+
   await ensureClosed()
   const gestureProbe = await command(inputHelper, ["swipe-up"], { allowFailure: true, timeout: 15000 })
   if (gestureProbe.error) {
