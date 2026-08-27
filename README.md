@@ -100,7 +100,7 @@ Inside the overview:
 | Workspace `+` button | Create and switch to a persistent space |
 | Workspace `×` button | Remove a space and move its windows to its neighbor |
 | Workspace `Edit` button | Edit the space name inline; `Enter` saves and `Escape` cancels |
-| `Control + Left` / `Control + Right` | Switch to the adjacent space |
+| `Control + Left` / `Control + Right` | Preview the adjacent space while Mission Control stays open |
 | `Shift + Left` / `Shift + Right` | Reorder the selected workspace |
 | Drag a window onto a space card | Move only that window to the space; the view and focus stay put |
 | `Shift + 1` through `Shift + 9` | Move the selected window to that space |

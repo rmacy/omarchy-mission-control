@@ -539,20 +539,24 @@ async function main() {
   await focusWorkspace(fixtureB)
   await ensureOpen(fixtureB)
   await input("chord", "ctrl", "right")
-  const controlRightSpace = await waitFor(async () =>
-    (await jsonCommand("hyprctl", ["-j", "activeworkspace"])).id === fixtureA
-      && !(await status()).open)
-  record("Control+Right switches to the next space", controlRightSpace,
-    `${fixtureB} -> ${fixtureA}`,
-    await capture("control-right-space", "Control+Right space switch"))
-  await ensureOpen(fixtureA)
+  const controlRightPreview = await waitFor(async () => {
+    const s = await status()
+    return s.open && s.workspace === fixtureA ? s : null
+  })
+  const activeAfterCtrlRight = (await jsonCommand("hyprctl", ["-j", "activeworkspace"])).id
+  record("Control+Right previews next space without closing", !!controlRightPreview && activeAfterCtrlRight === fixtureB,
+    `previewed ${fixtureA}, active ${activeAfterCtrlRight}, open ${!!controlRightPreview?.open}`,
+    await capture("control-right-preview", "Control+Right previews next space"))
+
   await input("chord", "ctrl", "left")
-  const controlLeftSpace = await waitFor(async () =>
-    (await jsonCommand("hyprctl", ["-j", "activeworkspace"])).id === fixtureB
-      && !(await status()).open)
-  record("Control+Left switches to the previous space", controlLeftSpace,
-    `${fixtureA} -> ${fixtureB}`,
-    await capture("control-left-space", "Control+Left space switch"))
+  const controlLeftPreview = await waitFor(async () => {
+    const s = await status()
+    return s.open && s.workspace === fixtureB ? s : null
+  })
+  const activeAfterCtrlLeft = (await jsonCommand("hyprctl", ["-j", "activeworkspace"])).id
+  record("Control+Left previews previous space without closing", !!controlLeftPreview && activeAfterCtrlLeft === fixtureB,
+    `previewed ${fixtureB}, active ${activeAfterCtrlLeft}, open ${!!controlLeftPreview?.open}`,
+    await capture("control-left-preview", "Control+Left previews previous space"))
 
   const keyboardAddressA = (await fixtureClients())
     .find(client => client.workspace.id === fixtureA)?.address

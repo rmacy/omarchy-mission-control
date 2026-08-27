@@ -4,15 +4,15 @@ import { test } from "node:test"
 
 const qml = readFileSync(new URL("../MissionControl.qml", import.meta.url), "utf8")
 const adjacentWorkspace = qml.match(
-  /function activateAdjacentWorkspace\(direction\)\s*\{[\s\S]*?\n  \}/,
+  /function selectAdjacentWorkspace\(direction\)\s*\{[\s\S]*?\n  \}/,
 )?.[0] || ""
 
-test("Control arrows switch to the adjacent Mission Control space", () => {
-  assert.match(qml, /Qt\.Key_Left && \(event\.modifiers & Qt\.ControlModifier\)\)\s*\{\s*root\.activateAdjacentWorkspace\(-1\)/)
-  assert.match(qml, /Qt\.Key_Right && \(event\.modifiers & Qt\.ControlModifier\)\)\s*\{\s*root\.activateAdjacentWorkspace\(1\)/)
+test("Control arrows preview the adjacent space without closing Mission Control", () => {
+  assert.match(qml, /Qt\.Key_Left && \(event\.modifiers & Qt\.ControlModifier\)\)\s*\{\s*root\.selectAdjacentWorkspace\(-1\)/)
+  assert.match(qml, /Qt\.Key_Right && \(event\.modifiers & Qt\.ControlModifier\)\)\s*\{\s*root\.selectAdjacentWorkspace\(1\)/)
   assert.match(adjacentWorkspace, /root\.workspaceIds\.indexOf\(root\.selectedWorkspaceId\)/)
-  assert.match(adjacentWorkspace, /root\.selectedWorkspaceId = root\.workspaceIds\[target\]/)
-  assert.match(adjacentWorkspace, /root\.activateWorkspace\(\)/)
+  assert.match(adjacentWorkspace, /root\.selectWorkspace\(root\.workspaceIds\[target\]\)/)
+  assert.doesNotMatch(adjacentWorkspace, /activateWorkspace|close\(\)|finishClose/)
 })
 
 test("Shift arrows retain explicit space reordering", () => {
