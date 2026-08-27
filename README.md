@@ -5,7 +5,7 @@ A macOS-style workspace and window overview for Omarchy. It runs inside the exis
 ## Features
 
 - Live, aspect-correct previews of every window in the selected workspace
-- Desktop thumbnails reconstruct each space's tiled and floating window layout over the current wallpaper
+- Desktop thumbnails reconstruct each space over the monitor's actual static or mpvpaper video wallpaper
 - Bar workspace widget that takes over the stock Workspaces slot and shows exactly the spaces that exist
 - Adaptive layout for laptop, desktop, and ultrawide displays
 - Space cards with drag-to-reorder, correct renumbering, creation, and removal
@@ -21,12 +21,17 @@ A macOS-style workspace and window overview for Omarchy. It runs inside the exis
 - Hyprland 0.56 or newer with Lua configuration
 - Quickshell 0.3 or newer
 - Hyprland support for `hyprland-toplevel-export-v1` and foreign-toplevel management; both are present in stock Omarchy
+- Qt Multimedia (`qt6-multimedia`, included by Omarchy) for shared video wallpaper frames
 
 ## Desktop thumbnails
 
 Each space card composes Hyprland's real window geometry with captured client surfaces, so tiled and floating windows appear where they actually live. The selected space stays live; inactive spaces take a snapshot to avoid multiplying compositor capture work every frame.
 
 Wayland's toplevel export omits compositor-only decorations and layer-shell surfaces. The cards therefore include wallpaper, window placement, sizes, and content, but not the Omarchy bar, compositor shadows, or notification layers.
+
+Static wallpaper paths come from Omarchy's current-background state link. When `mpvpaper` is active, the plugin reads its local `/proc` command line, selects the process targeting the overview monitor (or `*`), and uses that existing local video file instead. Remote, relative, missing, and non-regular paths are rejected.
+
+All space cards share one muted, looping Qt Multimedia decoder and one `VideoOutput`; cards clone that frame rather than starting a decoder per space. Closing Mission Control stops playback and source polling. No frame is downloaded, transcoded, or written to disk.
 
 ## Install
 

@@ -1,4 +1,5 @@
 import QtQuick
+import QtMultimedia
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
@@ -39,6 +40,21 @@ Item {
   property var workspaceIds: []
   property var windows: []
   property var desktopCache: ({})
+  readonly property string pluginSourceDir: root.manifest && root.manifest.__sourceDir
+    ? String(root.manifest.__sourceDir).replace(/\/+$/, "") : ""
+  readonly property string backgroundResolverPath: root.pluginSourceDir
+    ? root.pluginSourceDir + "/bin/background-source" : ""
+  property string backgroundPath: ""
+  property string backgroundKind: "none"
+  property string backgroundSource: "none"
+  property int backgroundRequestGeneration: 0
+  readonly property bool videoFrameReady: root.opened
+    && root.backgroundKind === "video"
+    && sharedVideoPlayer.playbackState === MediaPlayer.PlayingState
+    && sharedVideoPlayer.hasVideo
+    && sharedVideoOutput.sourceRect.width > 0
+    && sharedVideoOutput.sourceRect.height > 0
+
 
   readonly property color backgroundColor: Color.menu.background
   readonly property color foregroundColor: Color.menu.text
@@ -48,8 +64,6 @@ Item {
   readonly property color selectedTextColor: Color.menu.selectedText
   readonly property color selectedBorderColor: Color.menu.selectedBorder
   readonly property int gridSpacing: Math.max(Style.spacing.lg, 18)
-  readonly property string currentBackgroundLink: Quickshell.env("HOME")
-    + "/.local/state/omarchy/current/background"
   readonly property var overviewMonitor: root.monitorById(root.targetMonitorId)
   readonly property int gridColumns: WindowModel.gridColumns(
     root.windows.length, windowGrid.width, windowGrid.height)
@@ -75,6 +89,62 @@ Item {
     }
     return null
   }
+  function parseBackgroundRecord(output) {
+    var record
+    try {
+      record = JSON.parse(String(output || "").trim())
+    } catch (_error) {
+      return null
+    }
+
+    if (!record || typeof record !== "object" || Array.isArray(record)
+        || typeof record.path !== "string"
+        || typeof record.kind !== "string"
+        || typeof record.source !== "string") return null
+
+    var path = String(record.path)
+    var kind = String(record.kind)
+    var source = String(record.source)
+    if (kind !== "image" && kind !== "video" && kind !== "none") return null
+    if (source !== "mpvpaper" && source !== "state" && source !== "none") return null
+    if (kind === "none") {
+      if (path !== "" || source !== "none") return null
+    } else if (!path || path.charAt(0) !== "/" || path.indexOf("\u0000") !== -1
+               || source === "none") {
+      return null
+    }
+
+    return { path: path, kind: kind, source: source }
+  }
+
+  function applyBackgroundRecord(record) {
+    if (!record) return
+    var changed = root.backgroundPath !== record.path
+      || root.backgroundKind !== record.kind
+    if (changed && root.backgroundKind === "video") sharedVideoPlayer.stop()
+
+    if (root.backgroundKind === "video" && record.kind !== "video") {
+      root.backgroundKind = record.kind
+      root.backgroundPath = record.path
+    } else {
+      root.backgroundPath = record.path
+      root.backgroundKind = record.kind
+    }
+    root.backgroundSource = record.source
+  }
+
+  function refreshBackgroundSource() {
+    if (!root.opened || !root.backgroundResolverPath
+        || !root.targetMonitorName || backgroundSourceProcess.running) return
+    backgroundSourceProcess.requestGeneration = root.backgroundRequestGeneration
+    backgroundSourceProcess.requestedMonitor = root.targetMonitorName
+    backgroundSourceProcess.command = [
+      root.backgroundResolverPath,
+      root.targetMonitorName
+    ]
+    backgroundSourceProcess.running = true
+  }
+
 
   function desktopWindows(workspaceId) {
     var revision = root.desktopRevision
@@ -206,6 +276,9 @@ Item {
     Hyprland.refreshWorkspaces()
     Hyprland.refreshToplevels()
     root.opened = true
+    root.backgroundRequestGeneration += 1
+    backgroundPollTimer.restart()
+    root.refreshBackgroundSource()
     root.revealProgress = 0
     root.refreshOverview()
 
@@ -227,6 +300,10 @@ Item {
   }
 
   function close() {
+    sharedVideoPlayer.stop()
+    backgroundPollTimer.stop()
+    root.backgroundRequestGeneration += 1
+    if (backgroundSourceProcess.running) backgroundSourceProcess.running = false
     root.revealProgress = 0
     root.opened = false
     root.windows = []
@@ -482,6 +559,11 @@ Item {
       windowCount: root.windows.length,
       hyprlandToplevelCount: Hyprland.toplevels.values.length,
       foreignToplevelCount: root.foreignToplevelCount,
+      backgroundPath: root.backgroundPath,
+      backgroundKind: root.backgroundKind,
+      backgroundSource: root.backgroundSource,
+      videoFrameReady: root.videoFrameReady,
+      videoPlaybackState: sharedVideoPlayer.playbackState,
       selectedAddress: root.currentSelectedAddress()
     })
   }
@@ -576,6 +658,13 @@ Item {
 
 
   Timer {
+    id: backgroundPollTimer
+    interval: 5000
+    repeat: true
+    onTriggered: root.refreshBackgroundSource()
+  }
+
+  Timer {
     id: refreshTimer
     interval: 45
     repeat: false
@@ -631,6 +720,52 @@ Item {
       desktopRefreshTimer.restart()
     }
   }
+
+  Process {
+    id: backgroundSourceProcess
+    property int requestGeneration: -1
+    property string requestedMonitor: ""
+    stdout: StdioCollector { id: backgroundSourceStdout; waitForEnd: true }
+    stderr: StdioCollector { id: backgroundSourceStderr; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (!root.opened
+          || requestGeneration !== root.backgroundRequestGeneration
+          || requestedMonitor !== root.targetMonitorName) return
+      if (exitCode !== 0) {
+        var detail = String(
+          backgroundSourceStderr.text || backgroundSourceStdout.text || "").trim()
+        console.warn("bitr0t.mission-control: background resolver failed (exit "
+          + exitCode + ")" + (detail ? ": " + detail : ""))
+        return
+      }
+
+      var record = root.parseBackgroundRecord(backgroundSourceStdout.text)
+      if (!record) {
+        console.warn("bitr0t.mission-control: background resolver returned invalid JSON")
+        return
+      }
+      root.applyBackgroundRecord(record)
+    }
+  }
+
+  MediaPlayer {
+    id: sharedVideoPlayer
+    source: root.opened && root.backgroundKind === "video" && root.backgroundPath
+      ? Util.fileUrl(root.backgroundPath) : ""
+    videoOutput: sharedVideoOutput
+    activeAudioTrack: -1
+    audioOutput: AudioOutput {
+      muted: true
+      volume: 0
+    }
+    loops: MediaPlayer.Infinite
+    autoPlay: true
+    onErrorOccurred: function(error, errorString) {
+      if (error !== MediaPlayer.NoError)
+        console.warn("bitr0t.mission-control: video wallpaper failed: " + errorString)
+    }
+  }
+
 
   PanelWindow {
     id: panel
@@ -701,6 +836,16 @@ Item {
             event.accepted = true
           }
         }
+      }
+
+      VideoOutput {
+        id: sharedVideoOutput
+        x: -width - Style.space(1)
+        width: Math.max(1, workspaceRail.chipWidth)
+        height: Math.max(1, workspaceRail.chipHeight)
+        z: -1
+        visible: root.opened && root.backgroundKind === "video"
+        fillMode: VideoOutput.PreserveAspectCrop
       }
 
       Rectangle {
@@ -815,12 +960,30 @@ Item {
                   anchors.fill: parent
                   clip: true
 
+                  Rectangle {
+                    anchors.fill: parent
+                    color: workspaceChip.color
+                  }
+
                   Image {
                     anchors.fill: parent
-                    source: Util.fileUrl(root.currentBackgroundLink)
+                    visible: root.backgroundKind === "image" && !!root.backgroundPath
+                    source: visible ? Util.fileUrl(root.backgroundPath) : ""
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                     cache: true
+                    smooth: true
+                  }
+
+                  ShaderEffectSource {
+                    anchors.fill: parent
+                    visible: root.videoFrameReady
+                    sourceItem: root.opened && root.backgroundKind === "video"
+                      ? sharedVideoOutput : null
+                    sourceRect: Qt.rect(
+                      0, 0, sharedVideoOutput.width, sharedVideoOutput.height)
+                    hideSource: true
+                    live: visible
                     smooth: true
                   }
 

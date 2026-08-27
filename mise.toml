@@ -2,7 +2,7 @@
 node = "24"
 
 [tasks.test]
-description = "Run the window and workspace model tests"
+description = "Run the window model and background source tests"
 run = "node --test tests/*.test.mjs"
 
 [tasks.coverage]
