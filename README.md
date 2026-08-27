@@ -72,7 +72,7 @@ Inside the overview:
 | Drag a workspace | Reorder spaces; Hyprland IDs are renumbered to match |
 | Workspace `+` button | Create and switch to a persistent space |
 | Workspace `×` button | Remove a space and move its windows to its neighbor |
-| Workspace `Name` button | Edit the space name inline; `Enter` saves and `Escape` cancels |
+| Workspace `Edit` button | Edit the space name inline; `Enter` saves and `Escape` cancels |
 | `Shift + Left` / `Shift + Right` | Reorder the selected workspace |
 | Drag a window onto a space card | Move only that window to the space; the view and focus stay put |
 | `Shift + 1` through `Shift + 9` | Move the selected window to that space |

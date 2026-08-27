@@ -783,8 +783,10 @@ Item {
                 required property int index
                 property alias removeButtonItem: removeSpaceButton
                 property alias renameButtonItem: renameSpaceButton
-                readonly property string displayName: root.spaceName(modelData)
-                  || ("Space " + modelData)
+                readonly property string customName: root.spaceService
+                  && root.spaceService.namesLoaded
+                  ? String(root.spaceService.spaceNames[String(modelData)] || "") : ""
+                readonly property string displayName: customName || ("Space " + modelData)
                 readonly property bool selected: modelData === root.selectedWorkspaceId
                 readonly property int windowCount: root.workspaceWindowCount(modelData)
                 readonly property int renderedWindowCount: thumbnailWindowRepeater.count
@@ -1006,7 +1008,7 @@ Item {
 
                   Text {
                     anchors.centerIn: parent
-                    text: "Name"
+                    text: "Edit"
                     color: root.foregroundColor
                     font.family: Style.font.menuFamily
                     font.pixelSize: Style.font.caption
