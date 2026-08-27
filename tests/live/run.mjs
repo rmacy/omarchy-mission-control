@@ -536,6 +536,24 @@ async function main() {
     `${movedAddress} -> ${fixtureB}, focus stayed ${activeAfterMove}`, await capture("shift-number-move", "Shift+number moves window"))
   await moveWindow(movedAddress, fixtureA)
 
+  await focusWorkspace(fixtureB)
+  await ensureOpen(fixtureB)
+  await input("chord", "ctrl", "right")
+  const controlRightSpace = await waitFor(async () =>
+    (await jsonCommand("hyprctl", ["-j", "activeworkspace"])).id === fixtureA
+      && !(await status()).open)
+  record("Control+Right switches to the next space", controlRightSpace,
+    `${fixtureB} -> ${fixtureA}`,
+    await capture("control-right-space", "Control+Right space switch"))
+  await ensureOpen(fixtureA)
+  await input("chord", "ctrl", "left")
+  const controlLeftSpace = await waitFor(async () =>
+    (await jsonCommand("hyprctl", ["-j", "activeworkspace"])).id === fixtureB
+      && !(await status()).open)
+  record("Control+Left switches to the previous space", controlLeftSpace,
+    `${fixtureA} -> ${fixtureB}`,
+    await capture("control-left-space", "Control+Left space switch"))
+
   const keyboardAddressA = (await fixtureClients())
     .find(client => client.workspace.id === fixtureA)?.address
   const keyboardAddressB = (await fixtureClients())

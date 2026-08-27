@@ -515,6 +515,15 @@ Item {
     root.commitReorder(index, target)
   }
 
+  function activateAdjacentWorkspace(direction) {
+    var index = root.workspaceIds.indexOf(root.selectedWorkspaceId)
+    if (index < 0) return
+    var target = index + (Number(direction) < 0 ? -1 : 1)
+    if (target < 0 || target >= root.workspaceIds.length) return
+    root.selectedWorkspaceId = root.workspaceIds[target]
+    root.activateWorkspace()
+  }
+
   function activateWorkspace() {
     if (root.selectedWorkspaceId <= 0) {
       root.close()
@@ -915,6 +924,12 @@ Item {
           event.accepted = true
         } else if (event.key === Qt.Key_Right && (event.modifiers & Qt.ShiftModifier)) {
           root.nudgeSelectedWorkspace(1)
+          event.accepted = true
+        } else if (event.key === Qt.Key_Left && (event.modifiers & Qt.ControlModifier)) {
+          root.activateAdjacentWorkspace(-1)
+          event.accepted = true
+        } else if (event.key === Qt.Key_Right && (event.modifiers & Qt.ControlModifier)) {
+          root.activateAdjacentWorkspace(1)
           event.accepted = true
         } else if (event.key === Qt.Key_Left || (event.key === Qt.Key_H && vimModifiers)) {
           root.moveSelection(-1, 0)
