@@ -6,6 +6,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
 import "WindowModel.js" as WindowModel
+import "SwitcherModel.js" as SwitcherModel
 
 Item {
   id: root
@@ -224,6 +225,7 @@ Item {
       toplevel: toplevel,
       captureSource: toplevel.wayland,
       address: String(toplevel.address || metadata.address || ""),
+      stableId: String(toplevel.stableId || metadata.stableId || ""),
       aspect: sourceAspect,
       appName: appName,
       title: WindowModel.shortenedTitle(toplevel.title || metadata.title || appName, 120),
@@ -527,17 +529,27 @@ Item {
     ])
   }
 
-  function activateSelected() {
-    if (root.selectedIndex < 0 || root.selectedIndex >= root.windows.length) {
+  function activateWindow(index) {
+    if (index < 0 || index >= root.windows.length) {
       root.activateWorkspace()
       return
     }
 
-    var toplevel = root.windows[root.selectedIndex].captureSource
-    root.close()
-    Qt.callLater(function() {
-      if (toplevel) toplevel.activate()
-    })
+    var selectedStableId = String(root.windows[index].stableId || "")
+    var live = SwitcherModel.findSwitchableByStableId(
+      Hyprland.toplevels.values, selectedStableId,
+      root.targetMonitorId, root.selectedWorkspaceId)
+    root.finishClose()
+    if (!live || !/^[0-9A-Fa-f]+$/.test(selectedStableId)) return
+    Quickshell.execDetached([
+      "hyprctl", "eval",
+      'hl.dispatch(hl.dsp.focus({ window = "stableid:' + selectedStableId + '" }))\n'
+        + 'hl.dispatch(hl.dsp.window.bring_to_top())'
+    ])
+  }
+
+  function activateSelected() {
+    root.activateWindow(root.selectedIndex)
   }
 
   function closeWindow(index) {
@@ -1750,7 +1762,7 @@ Item {
                     root.pendingWindowToplevel = null
                     root.pendingWindowWorkspaceId = -1
                   }
-                  onClicked: if (!moved) root.activateSelected()
+                  onClicked: if (!moved) root.activateWindow(windowCell.index)
                 }
               }
             }
