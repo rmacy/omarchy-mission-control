@@ -17,9 +17,11 @@ test("space rail bounds duplicate live captures and discloses omitted windows", 
   assert.match(qml, /previewModel\.omittedCount/)
 })
 
-test("closing destroys retained workspace preview delegates", () => {
-  assert.match(qml, /function close\(\)\s*\{[\s\S]{0,400}?root\.workspaceIds = \[\]/)
-  assert.match(qml, /function close\(\)\s*\{[\s\S]{0,400}?root\.desktopCache = \(\{\}\)/)
+test("animated close destroys retained workspace preview delegates after exit", () => {
+  assert.match(qml, /function close\(\)\s*\{[\s\S]{0,500}?closeAnimationTimer\.restart\(\)/)
+  assert.match(qml, /id:\s*closeAnimationTimer[\s\S]{0,120}?onTriggered:\s*root\.finishClose\(\)/)
+  assert.match(qml, /function finishClose\(\)\s*\{[\s\S]{0,600}?root\.workspaceIds = \[\]/)
+  assert.match(qml, /function finishClose\(\)\s*\{[\s\S]{0,600}?root\.desktopCache = \(\{\}\)/)
 })
 
 test("status exposes rendered and omitted window counts", () => {

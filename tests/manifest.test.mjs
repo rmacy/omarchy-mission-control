@@ -5,10 +5,10 @@ import { test } from "node:test"
 const root = new URL("../", import.meta.url)
 const manifest = JSON.parse(readFileSync(new URL("manifest.json", root), "utf8"))
 
-test("manifest publishes the scoped v3.1.0 merged plugin", () => {
+test("manifest publishes the scoped v3.2.0 merged plugin", () => {
   assert.equal(manifest.schemaVersion, 1)
   assert.equal(manifest.id, "bitr0t.mission-control")
-  assert.equal(manifest.version, "3.1.0")
+  assert.equal(manifest.version, "3.2.0")
   assert.deepEqual(manifest.kinds, ["overlay", "service", "bar-widget"])
   assert.equal(manifest.keepLoaded, true)
   assert.match(manifest.description, /Alt-Tab switcher/i)

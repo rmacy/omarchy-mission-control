@@ -20,8 +20,8 @@ test("all workspace cards share exactly one muted video decoder", () => {
 })
 
 test("video work stops and resolver polling is bounded by overlay lifecycle", () => {
-  assert.match(qml, /function close\(\)\s*\{[\s\S]*?sharedVideoPlayer\.stop\(\)/)
-  assert.match(qml, /function close\(\)\s*\{[\s\S]*?backgroundPollTimer\.stop\(\)/)
+  assert.match(qml, /function finishClose\(\)\s*\{[\s\S]*?sharedVideoPlayer\.stop\(\)/)
+  assert.match(qml, /function finishClose\(\)\s*\{[\s\S]*?backgroundPollTimer\.stop\(\)/)
   assert.match(qml, /id:\s*backgroundPollTimer[\s\S]*?interval:\s*5000[\s\S]*?repeat:\s*true/)
   assert.match(qml, /if \(!root\.opened[\s\S]*?backgroundSourceProcess\.running\) return/)
 })
