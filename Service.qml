@@ -190,6 +190,14 @@ Item {
     }
   }
 
+  // Alt-Tab registration is delegated to a dedicated binding component.
+  // It runs its own generated cleanup on teardown; in integration mode it
+  // never reloads Hyprland itself — the reload below stays the only one.
+  AltTabService {
+    shell: root.shell
+    integrationMode: true
+  }
+
   Connections {
     target: Hyprland
     function onRawEvent(event) {

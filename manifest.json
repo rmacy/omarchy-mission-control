@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "bitr0t.mission-control",
   "name": "Mission Control",
-  "version": "2.4.0",
+  "version": "3.0.0",
   "author": "Ryan Macy",
-  "description": "Live workspace and window overview for Omarchy, opened by Control+Up or a three-finger upward swipe, plus a bar widget that mirrors its dynamic spaces.",
+  "description": "macOS-style workspace and window overview with dynamic bar spaces, plus a themed Alt-Tab switcher for the active workspace, in one Omarchy shell plugin.",
   "kinds": [
     "overlay",
     "service",
@@ -12,7 +12,7 @@
   ],
   "keepLoaded": true,
   "entryPoints": {
-    "overlay": "MissionControl.qml",
+    "overlay": "Overlay.qml",
     "service": "Service.qml",
     "barWidget": "BarWidget.qml"
   },
