@@ -38,7 +38,7 @@ No build step, downloaded artifact, native binary, Node package, Python package,
 omarchy plugin add https://github.com/rmacy/omarchy-mission-control.git --enable
 ```
 
-Omarchy clones the repository into `~/.config/omarchy/plugins/bitr0t.omarchy-mission-control/`, validates `manifest.json`, and enables it. The plugin ships no install hooks, uses no `sudo`, and never edits shell configuration itself. When you explicitly enable it, Omarchy records the plugin and optional bar-widget placement in your shell configuration. This single install delivers Mission Control, the bar spaces widget, and the Alt-Tab switcher.
+Omarchy clones the repository into `~/.config/omarchy/plugins/bitr0t.omarchy-mission-control/`, validates `manifest.json`, and enables it. The plugin ships no install hooks, requires no elevated privileges, and never edits shell configuration itself. When you explicitly enable it, Omarchy records the plugin and optional bar-widget placement in your shell configuration. This single install delivers Mission Control, the bar spaces widget, and the Alt-Tab switcher.
 
 The single overlay entry point, `Overlay.qml`, hosts both surfaces and forwards the shell and manifest handles to Mission Control and the Alt-Tab switcher alike. The two surfaces are mutually exclusive: opening Mission Control dismisses the Alt-Tab switcher, and starting an Alt-Tab switch closes Mission Control.
 
