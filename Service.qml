@@ -2,7 +2,6 @@ import QtQuick
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
-import qs.Commons
 import "WindowModel.js" as WindowModel
 
 Item {
@@ -10,14 +9,11 @@ Item {
 
   property var shell: null
   property string omarchyPath: ""
-  readonly property string ownerToken: "bitr0t.mission-control-" + Date.now()
+  readonly property string ownerToken: "bitr0t.omarchy-mission-control-" + Date.now()
     + "-" + Math.random().toString(36).slice(2)
   property bool applyQueued: false
   property bool shuttingDown: false
-  property bool barMigrationDone: false
 
-  readonly property string stockWorkspacesId: "omarchy.workspaces"
-  readonly property string widgetId: "bitr0t.mission-control"
   readonly property string spacesStatePath: Quickshell.env("HOME")
     + "/.local/state/omarchy/mission-control-spaces.json"
   property var managedWorkspaceIds: []
@@ -112,14 +108,14 @@ Item {
   function applyLua() {
     return [
       'local owner = "' + root.ownerToken + '"',
-      '_G.bitr0t_mission_control_owner = owner',
+      '_G.bitr0t_omarchy_mission_control_owner = owner',
       'hl.unbind("CTRL + UP")',
       'hl.unbind("CTRL + DOWN")',
       'hl.bind("CTRL + UP",',
-      '  hl.dsp.exec_cmd("omarchy-shell -q shell summon bitr0t.mission-control {}"),',
+      '  hl.dsp.exec_cmd("omarchy-shell -q shell summon bitr0t.omarchy-mission-control {}"),',
       '  { description = "Open Mission Control" })',
       'hl.bind("CTRL + DOWN",',
-      '  hl.dsp.exec_cmd("omarchy-shell -q shell hide bitr0t.mission-control"),',
+      '  hl.dsp.exec_cmd("omarchy-shell -q shell hide bitr0t.omarchy-mission-control"),',
       '  { description = "Close Mission Control" })',
       'hl.gesture({',
       '  fingers = 3,',
@@ -127,7 +123,7 @@ Item {
       '  mods = "",',
       '  scale = 1.0,',
       '  action = function()',
-      '    hl.exec_cmd("omarchy-shell -q shell summon bitr0t.mission-control {}")',
+      '    hl.exec_cmd("omarchy-shell -q shell summon bitr0t.omarchy-mission-control {}")',
       '  end',
       '})'
     ].join("\n")
@@ -136,11 +132,10 @@ Item {
   function cleanupLua() {
     return [
       'local owner = "' + root.ownerToken + '"',
-      'if _G.bitr0t_mission_control_owner == owner then',
-      '  _G.bitr0t_mission_control_owner = nil',
+      'if _G.bitr0t_omarchy_mission_control_owner == owner then',
+      '  _G.bitr0t_omarchy_mission_control_owner = nil',
       '  hl.unbind("CTRL + UP")',
       '  hl.unbind("CTRL + DOWN")',
-      '  hl.exec_cmd("hyprctl reload")',
       '  hl.gesture({ fingers = 3, direction = "up", mods = "", scale = 1.0, action = "unset" })',
       'end'
     ].join("\n")
@@ -188,7 +183,7 @@ Item {
       if (root.shuttingDown) return
       if (exitCode !== 0) {
         var detail = String(applyStdout.text || applyStderr.text || "").trim()
-        console.warn("bitr0t.mission-control: failed to register shortcut and gesture (exit "
+        console.warn("bitr0t.omarchy-mission-control: failed to register shortcut and gesture (exit "
           + exitCode + ")" + (detail ? ": " + detail : ""))
       }
       if (root.applyQueued) root.queueApply()
@@ -196,9 +191,11 @@ Item {
   }
 
   // Alt-Tab registration is delegated to a dedicated binding component.
-  // It runs its own generated cleanup on teardown; in integration mode it
-  // never reloads Hyprland itself — the reload below stays the only one.
+  // On integrated teardown it launches nothing itself; the destruction
+  // handler below sequences its cleanupScript with this service's own
+  // cleanup and the single restoring reload in one detached command.
   AltTabService {
+    id: altTabService
     shell: root.shell
     integrationMode: true
   }
@@ -212,119 +209,6 @@ Item {
 
   Component.onCompleted: {
     root.queueApply()
-    root.queueBarMigration()
-  }
-
-  // ------------------------------------------------------------------
-  // Bar widget migration
-  //
-  // The plugin ships a bar widget that supersedes the stock Workspaces
-  // widget, so a fresh install takes over that slot instead of leaving two
-  // workspace indicators on the bar. Once the shell's config has settled,
-  // every `omarchy.workspaces` entry in bar.layout becomes a
-  // `bitr0t.mission-control` entry in place — same section, same index,
-  // duplicate plugin or stock entries are dropped. A config that already
-  // points here and has no stock entry is left untouched, so repeated shell
-  // reloads write nothing.
-
-  function barLayout(config) {
-    if (!Util.isPlainObject(config)) return null
-    if (!Util.isPlainObject(config.bar)) return null
-    if (!Util.isPlainObject(config.bar.layout)) return null
-    return config.bar.layout
-  }
-
-  function entryId(entry) {
-    return Util.canonicalWidgetId(Util.isPlainObject(entry) ? entry.id : entry)
-  }
-
-
-  function stockWorkspacesCount(layout) {
-    if (!layout) return 0
-    var sections = ["left", "center", "right"]
-    var count = 0
-    for (var s = 0; s < sections.length; s++) {
-      var entries = layout[sections[s]]
-      if (!Array.isArray(entries)) continue
-      for (var i = 0; i < entries.length; i++) {
-        if (root.entryId(entries[i]) === root.stockWorkspacesId) count++
-      }
-    }
-    return count
-  }
-
-  function replaceWorkspacesEntries(config) {
-    var layout = root.barLayout(config)
-    if (!layout) return
-
-    var sections = ["left", "center", "right"]
-
-    // Enabling a multi-kind plugin can place its widget before this migration
-    // runs. Remove those provisional entries so the stock slot remains the
-    // authoritative section, index, and settings source.
-    for (var s = 0; s < sections.length; s++) {
-      var provisional = layout[sections[s]]
-      if (!Array.isArray(provisional)) continue
-      for (var p = provisional.length - 1; p >= 0; p--) {
-        if (root.entryId(provisional[p]) === root.widgetId)
-          provisional.splice(p, 1)
-      }
-    }
-
-    var claimed = false
-    for (var section = 0; section < sections.length; section++) {
-      var entries = layout[sections[section]]
-      if (!Array.isArray(entries)) continue
-      for (var i = 0; i < entries.length; i++) {
-        var entry = entries[i]
-        if (root.entryId(entry) !== root.stockWorkspacesId) continue
-        if (claimed) {
-          entries.splice(i, 1)
-          i--
-          continue
-        }
-        if (Util.isPlainObject(entry)) entry.id = root.widgetId
-        else entries[i] = { id: root.widgetId }
-        claimed = true
-      }
-    }
-  }
-
-  function queueBarMigration() {
-    if (root.shuttingDown || root.barMigrationDone) return
-    barMigrationTimer.restart()
-  }
-
-  function runBarMigration() {
-    if (root.shuttingDown || root.barMigrationDone) return
-    var shell = root.shell
-    if (!shell || typeof shell.mutateShellConfig !== "function"
-        || !Util.isPlainObject(shell.shellConfig)) {
-      root.queueBarMigration()
-      return
-    }
-
-    root.barMigrationDone = true
-    if (root.stockWorkspacesCount(root.barLayout(shell.shellConfig)) === 0) return
-
-    shell.mutateShellConfig(function(config) {
-      root.replaceWorkspacesEntries(config)
-    })
-  }
-
-  Timer {
-    id: barMigrationTimer
-    interval: 2000
-    repeat: false
-    onTriggered: root.runBarMigration()
-  }
-
-  // Startup rewrites shellConfig as defaults and the user file finish
-  // loading; restarting the delay each time keeps the migration from
-  // racing (and clobbering) a configuration that is still settling.
-  Connections {
-    target: root.shell
-    function onShellConfigChanged() { root.queueBarMigration() }
   }
 
   FileView {
@@ -356,7 +240,7 @@ Item {
   }
 
   IpcHandler {
-    target: "bitr0t-mission-control-state"
+    target: "bitr0t-omarchy-mission-control-state"
 
     function get(): string {
       return JSON.stringify(root.managedWorkspaceIds)
@@ -396,13 +280,18 @@ Item {
   Component.onDestruction: {
     root.shuttingDown = true
     applyTimer.stop()
-    barMigrationTimer.stop()
     if (removeGestureProcess.running) removeGestureProcess.running = false
     if (applyProcess.running) applyProcess.running = false
+    // One sequential detached command: Alt-Tab cleanup, then this
+    // service's cleanup, then the single restoring reload. Sequencing —
+    // never a timed delay — guarantees no Alt-Tab unbind lands after the
+    // reload has restored configured bindings.
     Quickshell.execDetached([
       "sh", "-c",
-      'sleep 0.4; hyprctl eval "$1" >/dev/null 2>&1',
-      "mission-control-cleanup", root.cleanupLua()
+      'hyprctl eval "$1" >/dev/null 2>&1; hyprctl eval "$2" >/dev/null 2>&1; hyprctl reload >/dev/null 2>&1',
+      "mission-control-cleanup",
+      altTabService.cleanupScript,
+      root.cleanupLua()
     ])
   }
 }

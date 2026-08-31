@@ -26,7 +26,7 @@ Item {
   property int pendingWindowWorkspaceId: -1
   readonly property var spaceService: root.shell
     && typeof root.shell.serviceFor === "function"
-    ? root.shell.serviceFor("bitr0t.mission-control") : null
+    ? root.shell.serviceFor("bitr0t.omarchy-mission-control") : null
   readonly property var managedWorkspaceIds: spaceService && spaceService.spacesLoaded
     ? spaceService.managedWorkspaceIds : []
   readonly property bool spacesLoaded: !!spaceService && spaceService.spacesLoaded
@@ -216,7 +216,7 @@ Item {
     var fallbackName = String(metadata.class || metadata.initialClass || "Application")
     var appName = entry ? String(root.appLibrary.entryName(entry) || fallbackName) : fallbackName
     var iconName = entry ? String(entry.icon || "")
-      : String(metadata.initialClass || metadata.class || "application-x-executable")
+      : SwitcherModel.safeIconName(metadata.initialClass || metadata.class)
     var sourceSize = metadata.size || []
     var sourceAspect = Number(sourceSize[0]) / Number(sourceSize[1])
     if (!isFinite(sourceAspect) || sourceAspect <= 0) sourceAspect = 16 / 10
@@ -390,7 +390,7 @@ Item {
   function saveManagedSpaces(values) {
     if (!root.spaceService
         || typeof root.spaceService.setManagedSpaces !== "function") {
-      console.warn("bitr0t.mission-control: workspace state service is unavailable")
+      console.warn("bitr0t.omarchy-mission-control: workspace state service is unavailable")
       return []
     }
     var next = root.spaceService.setManagedSpaces(values)
@@ -422,7 +422,7 @@ Item {
 
   function runWorkspaceLua(lua, description) {
     if (workspaceProcess.running) {
-      console.warn("bitr0t.mission-control: workspace op still running, skipped " + description)
+      console.warn("bitr0t.omarchy-mission-control: workspace op still running, skipped " + description)
       return false
     }
     workspaceProcess.operation = description
@@ -818,7 +818,7 @@ Item {
     onExited: function(exitCode) {
       if (exitCode !== 0) {
         var detail = String(workspaceStdout.text || workspaceStderr.text || "").trim()
-        console.warn("bitr0t.mission-control: failed to " + operation
+        console.warn("bitr0t.omarchy-mission-control: failed to " + operation
           + " (exit " + exitCode + ")" + (detail ? ": " + detail : ""))
       }
       if (root.opened && !root.closing) {
@@ -846,14 +846,14 @@ Item {
       if (exitCode !== 0) {
         var detail = String(
           backgroundSourceStderr.text || backgroundSourceStdout.text || "").trim()
-        console.warn("bitr0t.mission-control: background resolver failed (exit "
+        console.warn("bitr0t.omarchy-mission-control: background resolver failed (exit "
           + exitCode + ")" + (detail ? ": " + detail : ""))
         return
       }
 
       var record = root.parseBackgroundRecord(backgroundSourceStdout.text)
       if (!record) {
-        console.warn("bitr0t.mission-control: background resolver returned invalid JSON")
+        console.warn("bitr0t.omarchy-mission-control: background resolver returned invalid JSON")
         return
       }
       root.applyBackgroundRecord(record)
@@ -875,7 +875,7 @@ Item {
     autoPlay: root.thumbnailCapturesEnabled
     onErrorOccurred: function(error, errorString) {
       if (error !== MediaPlayer.NoError)
-        console.warn("bitr0t.mission-control: video wallpaper failed: " + errorString)
+        console.warn("bitr0t.omarchy-mission-control: video wallpaper failed: " + errorString)
     }
   }
 
@@ -888,7 +888,7 @@ Item {
     anchors { top: true; right: true; bottom: true; left: true }
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.namespace: "bitr0t-mission-control"
+    WlrLayershell.namespace: "bitr0t-omarchy-mission-control"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
 

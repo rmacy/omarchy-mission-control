@@ -164,7 +164,7 @@ Item {
       root.clients = []
       root.selectedIndex = -1
       root.modelError = "Could not read Hyprland windows"
-      console.warn("bitr0t.mission-control: native toplevel refresh failed:", error)
+      console.warn("bitr0t.omarchy-mission-control: native toplevel refresh failed:", error)
     }
     root.loading = false
     Qt.callLater(function() {
@@ -340,7 +340,7 @@ Item {
     anchors { top: true; right: true; bottom: true; left: true }
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.namespace: "bitr0t-mission-control-switcher"
+    WlrLayershell.namespace: "bitr0t-omarchy-mission-control-switcher"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 

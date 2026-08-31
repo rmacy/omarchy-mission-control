@@ -5,20 +5,28 @@ import Quickshell.Io
 import "AltTabBindingScript.js" as BindingScript
 
 // Alt-Tab half of the merged plugin's bindings. The host Service.qml
-// injects `shell` and owns the single Hyprland reload on teardown; this
-// component only registers, re-arms, and retires the Alt-Tab chords and
-// its temporary submap.
+// injects `shell`, sequences this component's cleanup with its own, and
+// owns the single Hyprland reload on teardown; this component only
+// registers, re-arms, and retires the Alt-Tab chords and its temporary
+// submap.
 Item {
   id: root
 
   property var shell: null
-  // Integration mode: on teardown this component still runs its generated
-  // cleanup (disable tracked handles, drop the submap, unbind the chords)
-  // but leaves `hyprctl reload` to the host Service, so the merged plugin
-  // restores configured bindings with exactly one reload.
+  // Integration mode: on teardown this component launches nothing. The
+  // host Service evals `cleanupScript` ahead of its own cleanup and the
+  // single restoring reload in one sequential detached command, so no
+  // Alt-Tab unbind can race past that reload.
   property bool integrationMode: false
 
-  readonly property string ownerToken: "bitr0t.mission-control-alt-tab-" + Date.now()
+  // Generated compositor-side cleanup for this instance's owner token.
+  // The integrated host reads this instead of racing an independent
+  // teardown process against the component; standalone teardown evals it.
+  readonly property string cleanupScript: BindingScript.generateCleanup({
+    ownerToken: root.ownerToken
+  })
+
+  readonly property string ownerToken: "bitr0t.omarchy-mission-control-alt-tab-" + Date.now()
     + "-" + Math.random().toString(36).slice(2)
   property bool applyQueued: false
   property bool shuttingDown: false
@@ -84,7 +92,7 @@ Item {
         }
         if (!root.registrationFailed) {
           root.registrationFailed = true
-          console.warn("bitr0t.mission-control: Alt-Tab registration failed after "
+          console.warn("bitr0t.omarchy-mission-control: Alt-Tab registration failed after "
             + root.applyAttempts + " attempts")
           root.notifyRegistrationFailure()
         }
@@ -110,13 +118,15 @@ Item {
     applyTimer.stop()
     retryTimer.stop()
     if (applyProcess.running) applyProcess.running = false
+    // Integrated teardown is owned by the host Service, which sequences
+    // this component's cleanupScript with its own cleanup and the single
+    // restoring reload; launching anything here would race that reload.
+    if (root.integrationMode) return
     Quickshell.execDetached([
       "sh", "-c",
-      root.integrationMode
-        ? 'hyprctl eval "$1" >/dev/null 2>&1'
-        : 'hyprctl eval "$1" >/dev/null 2>&1; hyprctl reload >/dev/null 2>&1',
+      'hyprctl eval "$1" >/dev/null 2>&1; hyprctl reload >/dev/null 2>&1',
       "mission-control-alt-tab-cleanup",
-      BindingScript.generateCleanup({ ownerToken: root.ownerToken })
+      root.cleanupScript
     ])
   }
 }

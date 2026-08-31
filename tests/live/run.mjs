@@ -68,7 +68,7 @@ async function jsonCommand(program, args) {
 
 async function shellCall(method, argument = "{}") {
   const { stdout } = await shellCommand([
-    "shell", "call", "bitr0t.mission-control", method, String(argument)
+    "shell", "call", "bitr0t.omarchy-mission-control", method, String(argument)
   ])
   const value = stdout.trim()
   if (value === "error" || value === "unknown" || value === "unloaded")
@@ -85,7 +85,7 @@ async function geometry() {
 
 async function barGeometry() {
   const { stdout } = await shellCommand([
-    "bitr0t-mission-control-spaces", "geometry"
+    "bitr0t-omarchy-mission-control-spaces", "geometry"
   ])
   const value = stdout.trim()
   if (!value || value === "error") throw new Error(`bar geometry returned ${value || "empty output"}`)
@@ -132,7 +132,7 @@ async function ensureOpen(workspaceId = null) {
   const payload = JSON.stringify({ workspace: desired })
   const current = await status().catch(() => ({ open: false }))
   if (!current.open)
-    await shellCommand(["shell", "summon", "bitr0t.mission-control", payload])
+    await shellCommand(["shell", "summon", "bitr0t.omarchy-mission-control", payload])
   else
     await shellCall("open", payload)
   return await waitFor(async () => {
@@ -142,7 +142,7 @@ async function ensureOpen(workspaceId = null) {
 }
 
 async function ensureClosed() {
-  await shellCommand(["shell", "hide", "bitr0t.mission-control"], { allowFailure: true })
+  await shellCommand(["shell", "hide", "bitr0t.omarchy-mission-control"], { allowFailure: true })
   await waitFor(async () => !(await status()).open)
 }
 
@@ -261,7 +261,7 @@ async function moveWindow(address, workspaceId) {
 
 async function managedIds() {
   const { stdout } = await shellCommand([
-    "bitr0t-mission-control-state", "get"
+    "bitr0t-omarchy-mission-control-state", "get"
   ])
   const parsed = JSON.parse(stdout)
   return Array.isArray(parsed) ? parsed.map(Number).filter(Number.isInteger) : []
@@ -271,7 +271,7 @@ async function setManagedIds(ids) {
   const normalized = [...new Set(ids.map(Number).filter(Number.isInteger))]
     .filter(id => id > 0 && id <= 10).sort((a, b) => a - b)
   const { stdout } = await shellCommand([
-    "bitr0t-mission-control-state", "set", normalized.join(":")
+    "bitr0t-omarchy-mission-control-state", "set", normalized.join(":")
   ])
   if (stdout.trim() === "invalid") throw new Error("workspace state service rejected IDs")
   await waitFor(async () =>
@@ -280,7 +280,7 @@ async function setManagedIds(ids) {
 
 async function spaceNames() {
   const { stdout } = await shellCommand([
-    "bitr0t-mission-control-state", "names"
+    "bitr0t-omarchy-mission-control-state", "names"
   ])
   const parsed = JSON.parse(stdout)
   return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : ({})
@@ -289,11 +289,11 @@ async function spaceNames() {
 async function renameSpace(workspaceId, name) {
   if (name)
     await shellCommand([
-      "bitr0t-mission-control-state", "rename", String(workspaceId), String(name)
+      "bitr0t-omarchy-mission-control-state", "rename", String(workspaceId), String(name)
     ])
   else
     await shellCommand([
-      "bitr0t-mission-control-state", "clearName", String(workspaceId)
+      "bitr0t-omarchy-mission-control-state", "clearName", String(workspaceId)
     ])
   await waitFor(async () => {
     const names = await spaceNames()
@@ -302,7 +302,7 @@ async function renameSpace(workspaceId, name) {
   })
 }
 async function restoreSpaceNames(names) {
-  await shellCommand(["bitr0t-mission-control-state", "clearNames"])
+  await shellCommand(["bitr0t-omarchy-mission-control-state", "clearNames"])
   for (const [workspaceId, name] of Object.entries(names || {}))
     await renameSpace(workspaceId, name)
 }
@@ -331,7 +331,7 @@ async function launchFixtures(count) {
 async function writeReports() {
   const report = {
     generatedAt: new Date().toISOString(),
-    plugin: "bitr0t.mission-control",
+    plugin: "bitr0t.omarchy-mission-control",
     display: process.env.HYPRLAND_INSTANCE_SIGNATURE || "",
     summary: {
       pass: results.filter(result => result.status === "pass").length,
@@ -369,7 +369,7 @@ function signalFixture(child, signal) {
 
 async function cleanup() {
   if (!sessionStarted) return
-  await shellCommand(["shell", "hide", "bitr0t.mission-control"], { allowFailure: true })
+  await shellCommand(["shell", "hide", "bitr0t.omarchy-mission-control"], { allowFailure: true })
   for (const child of fixtures) signalFixture(child, "SIGTERM")
   await sleep(250)
   for (const child of fixtures) signalFixture(child, "SIGKILL")
@@ -479,9 +479,9 @@ async function main() {
   }
 
   await ensureClosed()
-  await shellCommand(["shell", "toggle", "bitr0t.mission-control", "{}"])
+  await shellCommand(["shell", "toggle", "bitr0t.omarchy-mission-control", "{}"])
   await waitFor(async () => (await status()).open)
-  await shellCommand(["shell", "toggle", "bitr0t.mission-control", "{}"])
+  await shellCommand(["shell", "toggle", "bitr0t.omarchy-mission-control", "{}"])
   record("IPC toggle opens and closes", await waitFor(async () => !(await status()).open),
     "two toggles restore closed state", await capture("ipc-toggle-close", "IPC toggle closes"))
 
@@ -663,14 +663,14 @@ async function main() {
   const shellLayout = await jsonCommand("jq", ["-c", ".bar.layout.left | map(.id)", `${process.env.HOME}/.config/omarchy/shell.json`])
     .catch(() => [])
   record("Dynamic bar widget reflects managed spaces",
-    Array.isArray(shellLayout) && shellLayout.includes("bitr0t.mission-control"),
+    Array.isArray(shellLayout) && shellLayout.includes("bitr0t.omarchy-mission-control"),
     `${JSON.stringify(shellLayout)}; managed ${JSON.stringify(idsAfterAdd)}`, addImage)
   const addSync = await synchronizedSpaceState()
   record("Created space synchronizes to every switcher",
     addSync.synchronized && addSync.managed.includes(addedId),
     JSON.stringify(addSync), addImage)
 
-  await shellCommand(["shell", "summon", "bitr0t.mission-control", JSON.stringify({ workspace: addedId })])
+  await shellCommand(["shell", "summon", "bitr0t.omarchy-mission-control", JSON.stringify({ workspace: addedId })])
   await sleep(250)
   geo = await geometry()
   const addedSpace = geo.spaces.find(space => space.id === addedId)

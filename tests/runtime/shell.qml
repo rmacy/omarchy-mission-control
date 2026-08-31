@@ -13,7 +13,7 @@ ShellRoot {
     appLibrary: null,
     serviceFor: function () { return null }
   })
-  property var manifestStub: ({ id: "bitr0t.mission-control", version: "3.1.0" })
+  property var manifestStub: ({ id: "bitr0t.omarchy-mission-control", version: "4.0.0" })
   property var originalShellValues: null
   property var originalThemeShellValues: null
   property var originalUserShellValues: null
@@ -62,8 +62,8 @@ ShellRoot {
     root.check(missionControl.shell && missionControl.shell.marker === "runtime-shell-stub"
       && switcher.shell && switcher.shell.marker === "runtime-shell-stub",
       "shell was not forwarded to both surfaces")
-    root.check(missionControl.manifest && missionControl.manifest.id === "bitr0t.mission-control"
-      && switcher.manifest && switcher.manifest.version === "3.1.0",
+    root.check(missionControl.manifest && missionControl.manifest.id === "bitr0t.omarchy-mission-control"
+      && switcher.manifest && switcher.manifest.version === "4.0.0",
       "manifest was not forwarded to both surfaces")
     root.check(switcher.omarchyPath === root.overlay.omarchyPath,
       "omarchyPath was not forwarded to the switcher")

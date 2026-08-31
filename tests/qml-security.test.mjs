@@ -1,9 +1,15 @@
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { test } from "node:test"
+import vm from "node:vm"
 
 const qml = readFileSync(new URL("../WindowSwitcher.qml", import.meta.url), "utf8")
 const missionQml = readFileSync(new URL("../MissionControl.qml", import.meta.url), "utf8")
+const switcherSource = readFileSync(new URL("../SwitcherModel.js", import.meta.url), "utf8")
+  .replace(/^\.pragma library\s*/m, "")
+const switcherModel = {}
+vm.createContext(switcherModel)
+vm.runInContext(switcherSource, switcherModel, { filename: "SwitcherModel.js" })
 
 test("client-derived labels are always rendered as plain text", () => {
   const plainTextBindings = qml.match(/textFormat:\s*Text\.PlainText/g) || []
@@ -48,4 +54,28 @@ test("class fallback icons pass through the strict model sanitizer", () => {
 test("single and multi cards expose accessible button actions", () => {
   assert.equal((qml.match(/Accessible\.role:\s*Accessible\.Button/g) || []).length, 2)
   assert.equal((qml.match(/Accessible\.onPressAction/g) || []).length, 2)
+})
+
+test("Mission Control client-metadata fallback icons are sanitized before resolution", () => {
+  assert.match(missionQml,
+    /var iconName = entry \? String\(entry\.icon \|\| ""\)\s*\n\s*: SwitcherModel\.safeIconName\(metadata\.initialClass \|\| metadata\.class\)/)
+  assert.match(missionQml, /root\.appLibrary\.iconSource\(iconName\)/)
+  assert.match(missionQml, /Quickshell\.iconPath\(iconName, true\)/)
+  assert.doesNotMatch(missionQml,
+    /(?:iconSource|iconPath)\(String\(metadata\.(?:initialClass|class)/)
+  assert.doesNotMatch(missionQml, /safeIconName\(entry\.icon/)
+
+  const fallbackFor = metadata =>
+    switcherModel.safeIconName(metadata.initialClass || metadata.class)
+  assert.equal(fallbackFor({ initialClass: "file:///tmp/bomb.svg" }),
+    "application-x-executable")
+  assert.equal(fallbackFor({ initialClass: "/tmp/bomb.svg" }),
+    "application-x-executable")
+  assert.equal(fallbackFor({ initialClass: "https://example.test/icon" }),
+    "application-x-executable")
+  assert.equal(fallbackFor({ initialClass: "image://provider/payload" }),
+    "application-x-executable")
+  assert.equal(fallbackFor({ initialClass: "", class: "org.example.Chromium" }),
+    "org.example.Chromium")
+  assert.equal(fallbackFor({}), "application-x-executable")
 })

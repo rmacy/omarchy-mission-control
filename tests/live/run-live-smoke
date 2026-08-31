@@ -7,7 +7,7 @@ if [[ ${WINDOW_SWITCHER_LIVE_TEST:-} != 1 ]]; then
   exit 64
 fi
 
-plugin_id=bitr0t.mission-control
+plugin_id=bitr0t.omarchy-mission-control
 for command in cc jq hyprctl omarchy-shell; do
   command -v "$command" >/dev/null 2>&1 || { echo "live smoke: missing $command" >&2; exit 1; }
 done

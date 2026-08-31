@@ -1,7 +1,7 @@
 import QtQuick
 import Quickshell
 
-// Composite overlay entry for bitr0t.mission-control. The shell host loads
+// Composite overlay entry for bitr0t.omarchy-mission-control. The shell host loads
 // exactly one overlay per plugin and injects `shell` and `manifest`, so both
 // surfaces live here as children of a single loader item. Mission Control
 // keeps its long-standing IPC surface (`open`, `toggle`, `close`, `status`,

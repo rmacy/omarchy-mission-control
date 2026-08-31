@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "id": "bitr0t.mission-control",
+  "id": "bitr0t.omarchy-mission-control",
   "name": "Mission Control",
-  "version": "3.2.4",
+  "version": "4.0.0",
   "author": "Ryan Macy",
   "description": "macOS-style workspace and window overview with dynamic bar spaces, plus a themed Alt-Tab switcher for the active workspace, in one Omarchy shell plugin.",
   "kinds": [
@@ -20,6 +20,7 @@
     "displayName": "Mission Control Spaces",
     "description": "Workspace buttons that follow Mission Control's dynamic spaces",
     "category": "Compositor",
-    "allowMultiple": false
+    "allowMultiple": false,
+    "defaultSection": "left"
   }
 }

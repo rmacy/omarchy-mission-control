@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, chownSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { test } from "node:test"
@@ -11,35 +11,47 @@ const exec = promisify(execFile)
 const script = fileURLToPath(new URL("../bin/background-source", import.meta.url))
 
 // Every test drives the real bin/background-source against a throwaway
-// sandbox: a fake /proc tree with synthetic NUL-delimited cmdlines plus a
-// fake state symlink, injected through MC_PROC_ROOT/MC_BACKGROUND_LINK so no
-// real system state is ever read.
+// sandbox: a fake /proc tree with synthetic NUL-delimited cmdlines and exe
+// symlinks, a fake mpvpaper executable installed on a sandbox-only PATH,
+// and a fake state symlink, injected through MC_PROC_ROOT/MC_BACKGROUND_LINK
+// so no real system state is ever read.
 
 function makeSandbox() {
   const root = mkdtempSync(join(tmpdir(), "mc-background-source-"))
   const proc = join(root, "proc")
   const home = join(root, "home")
   const stateLink = join(root, "state", "background")
+  const binDir = join(root, "bin")
   mkdirSync(proc)
   mkdirSync(home)
   mkdirSync(dirname(stateLink))
+  mkdirSync(binDir)
+  // The mpvpaper the script must authenticate against: an executable on the
+  // sandbox PATH. Fixture processes point their <pid>/exe symlink here by
+  // default; pass a different target (or null for no exe link) per process.
+  const mpvpaper = join(binDir, "mpvpaper")
+  writeFileSync(mpvpaper, "#!/bin/sh\nexit 0\n")
+  chmodSync(mpvpaper, 0o755)
   const env = {
-    PATH: "/usr/bin:/bin",
+    PATH: `${binDir}:/usr/bin:/bin`,
     HOME: home,
     MC_PROC_ROOT: proc,
     MC_BACKGROUND_LINK: stateLink,
   }
   return {
     root,
+    mpvpaper,
     env,
-    addProcess(pid, argv) {
+    addProcess(pid, argv, exe = mpvpaper) {
       const dir = join(proc, String(pid))
       mkdirSync(dir)
+      if (exe) symlinkSync(exe, join(dir, "exe"))
       writeFileSync(join(dir, "cmdline"), Buffer.from(argv.map((arg) => `${arg}\0`).join("")))
     },
-    addRawProcess(pid, bytes) {
+    addRawProcess(pid, bytes, exe = mpvpaper) {
       const dir = join(proc, String(pid))
       mkdirSync(dir)
+      if (exe) symlinkSync(exe, join(dir, "exe"))
       writeFileSync(join(dir, "cmdline"), bytes)
     },
     addFile(relative) {
@@ -219,6 +231,88 @@ test("ends option parsing at -- so dashed operands still resolve", async () => {
     fx.addProcess(800, ["mpvpaper", "-p", "--", "DP-1", video])
     const { stdout } = await fx.source("DP-1")
     assert.deepEqual(JSON.parse(stdout), { path: video, kind: "video", source: "mpvpaper" })
+  })
+})
+
+test("rejects a process that is only named mpvpaper through argv[0]", async () => {
+  await withSandbox(async (fx) => {
+    const impostor = fx.addFile("bin/impostor")
+    const video = fx.addFile("wallpapers/spoof.mp4")
+    fx.addProcess(900, ["mpvpaper", "DP-1", video], impostor)
+    fx.addProcess(901, ["/usr/bin/mpvpaper", "DP-2", video], impostor)
+    const background = fx.addFile("state/background.png")
+    fx.linkState(background)
+    for (const monitor of ["DP-1", "DP-2"]) {
+      const { stdout } = await fx.source(monitor)
+      assert.deepEqual(
+        JSON.parse(stdout),
+        { path: background, kind: "image", source: "state" },
+        monitor,
+      )
+    }
+  })
+})
+
+test("rejects candidates whose exe is not the PATH-resolved mpvpaper", async () => {
+  await withSandbox(async (fx) => {
+    const other = fx.addFile("opt/other-player")
+    const video = fx.addFile("wallpapers/wrong-exe.mp4")
+    fx.addProcess(910, ["mpvpaper", "DP-1", video], other) // a different binary
+    fx.addProcess(911, ["mpvpaper", "DP-2", video], null) // no exe link at all
+    fx.addProcess(912, ["mpvpaper", "DP-3", video], join(fx.root, "opt", "deleted")) // dangling exe
+    const background = fx.addFile("state/background.png")
+    fx.linkState(background)
+    for (const monitor of ["DP-1", "DP-2", "DP-3"]) {
+      const { stdout } = await fx.source(monitor)
+      assert.deepEqual(
+        JSON.parse(stdout),
+        { path: background, kind: "image", source: "state" },
+        monitor,
+      )
+    }
+  })
+})
+
+test("rejects candidates whose process directory is owned by another user", async (t) => {
+  await withSandbox(async (fx) => {
+    if (process.geteuid() !== 0) {
+      return t.skip("creating a foreign-owned process directory requires root")
+    }
+    const video = fx.addFile("wallpapers/foreign.mp4")
+    fx.addProcess(920, ["mpvpaper", "DP-1", video])
+    chownSync(join(fx.env.MC_PROC_ROOT, "920"), 65534) // uid nobody: foreign to euid 0
+    const background = fx.addFile("state/background.png")
+    fx.linkState(background)
+    const { stdout } = await fx.source("DP-1")
+    assert.deepEqual(JSON.parse(stdout), { path: background, kind: "image", source: "state" })
+  })
+})
+
+test("authenticates exe symlinks that canonicalize to the PATH-resolved binary", async () => {
+  await withSandbox(async (fx) => {
+    // The PATH entry is a symlink to the real binary stored elsewhere while
+    // the process points exe directly at the real file: both sides must
+    // canonicalize to one and the same path.
+    const real = fx.addFile("opt/libexec/mpvpaper-real")
+    chmodSync(real, 0o755)
+    rmSync(fx.mpvpaper)
+    symlinkSync(real, fx.mpvpaper)
+    const video = fx.addFile("wallpapers/indirect.mp4")
+    fx.addProcess(930, ["mpvpaper", "DP-1", video], real)
+    const { stdout } = await fx.source("DP-1")
+    assert.deepEqual(JSON.parse(stdout), { path: video, kind: "video", source: "mpvpaper" })
+  })
+})
+
+test("falls back to state when mpvpaper is not installed on PATH", async () => {
+  await withSandbox(async (fx) => {
+    const video = fx.addFile("wallpapers/uninstalled.mp4")
+    fx.addProcess(940, ["mpvpaper", "DP-1", video]) // exe looks authentic…
+    const background = fx.addFile("state/background.png")
+    fx.linkState(background)
+    // …but nothing on PATH names mpvpaper, so no candidate is authenticatable
+    const { stdout } = await fx.source("DP-1", { PATH: "/usr/bin:/bin" })
+    assert.deepEqual(JSON.parse(stdout), { path: background, kind: "image", source: "state" })
   })
 })
 

@@ -9,7 +9,7 @@ const bindingScript = {}
 vm.createContext(bindingScript)
 vm.runInContext(source, bindingScript, { filename: "AltTabBindingScript.js" })
 
-const OWNER = "bitr0t.mission-control-alt-tab-1756213000000-a1b2c3"
+const OWNER = "bitr0t.omarchy-mission-control-alt-tab-1756213000000-a1b2c3"
 const STOCK_CHORDS = ["ALT + TAB", "ALT + SHIFT + TAB"]
 const apply = bindingScript.generateApply({ ownerToken: OWNER })
 const cleanup = bindingScript.generateCleanup({ ownerToken: OWNER })
@@ -45,11 +45,11 @@ test("rejects owner tokens that could inject Lua", () => {
 test("interpolates only a fixed inventory of validated Lua string literals", () => {
   const allowed = new Set([
     OWNER,
-    "bitr0t-mission-control-alt-tab",
-    "bitr0t_mission_control_alt_tab_owner",
-    "bitr0t_mission_control_alt_tab_active",
-    "bitr0t_mission_control_alt_tab_binds",
-    "omarchy-shell -q shell call bitr0t.mission-control ",
+    "bitr0t-omarchy-mission-control-alt-tab",
+    "bitr0t_omarchy_mission_control_alt_tab_owner",
+    "bitr0t_omarchy_mission_control_alt_tab_active",
+    "bitr0t_omarchy_mission_control_alt_tab_binds",
+    "omarchy-shell -q shell call bitr0t.omarchy-mission-control ",
     "reset",
     "table",
     "userdata",
@@ -134,8 +134,8 @@ test("every keybind callback is owner-guarded before acting", () => {
 test("reapply retires exact tracked handles before creating new binds", () => {
   const resetCall = apply.indexOf("\nreset_our_submap()\n")
   const disableLoop = apply.indexOf("disable(previous[index])")
-  const registry = apply.indexOf("_G.bitr0t_mission_control_alt_tab_binds = {}")
-  const ownerSet = apply.indexOf("_G.bitr0t_mission_control_alt_tab_owner = owner")
+  const registry = apply.indexOf("_G.bitr0t_omarchy_mission_control_alt_tab_binds = {}")
+  const ownerSet = apply.indexOf("_G.bitr0t_omarchy_mission_control_alt_tab_owner = owner")
   const firstBind = apply.indexOf("hl.bind(")
   for (const index of [resetCall, disableLoop, registry, ownerSet, firstBind]) {
     assert.ok(index > -1)
@@ -190,7 +190,7 @@ test("rapid advances coalesce into one signed delta IPC call", () => {
 
 test("emitted shell methods are exactly advance, commit and cancel", () => {
   assert.equal((apply.match(/hl\.exec_cmd/g) || []).length, 1, "single pcall-wrapped exec site")
-  assert.match(apply, /pcall\(hl\.exec_cmd, "omarchy-shell -q shell call bitr0t\.mission-control "/)
+  assert.match(apply, /pcall\(hl\.exec_cmd, "omarchy-shell -q shell call bitr0t\.omarchy-mission-control "/)
   const shellMethods = Array.from(apply.matchAll(/shell_call\("([a-z]+)"/g), m => m[1])
   const settleMethods = Array.from(apply.matchAll(/settle\("([a-z]+)", (?:true|false)\)/g), m => m[1])
   for (const method of [...shellMethods, ...settleMethods]) {
@@ -210,8 +210,8 @@ test("registration retry policy is bounded", () => {
 test("cleanup disables tracked handles and clears state without side effects", () => {
   assert.doesNotMatch(cleanup, /hl\.bind\(|hl\.timer\(|pending_delta|watch_alt/)
   assert.equal((cleanup.match(/set_enabled\(false\)/g) || []).length, 1)
-  assert.match(cleanup, /_G\.bitr0t_mission_control_alt_tab_binds = nil/)
-  const ownerGate = cleanup.indexOf("if _G.bitr0t_mission_control_alt_tab_owner == owner then")
-  const ownerClear = cleanup.indexOf("_G.bitr0t_mission_control_alt_tab_owner = nil")
+  assert.match(cleanup, /_G\.bitr0t_omarchy_mission_control_alt_tab_binds = nil/)
+  const ownerGate = cleanup.indexOf("if _G.bitr0t_omarchy_mission_control_alt_tab_owner == owner then")
+  const ownerClear = cleanup.indexOf("_G.bitr0t_omarchy_mission_control_alt_tab_owner = nil")
   assert.ok(ownerGate > -1 && ownerGate < ownerClear)
 })

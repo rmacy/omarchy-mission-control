@@ -14,11 +14,11 @@ import "WindowModel.js" as WindowModel
 // or removing a space in Mission Control reshapes the bar immediately.
 BarWidget {
   id: root
-  moduleName: "bitr0t.mission-control"
+  moduleName: "bitr0t.omarchy-mission-control"
 
   readonly property var spaceService: root.bar && root.bar.shell
     && typeof root.bar.shell.serviceFor === "function"
-    ? root.bar.shell.serviceFor("bitr0t.mission-control") : null
+    ? root.bar.shell.serviceFor("bitr0t.omarchy-mission-control") : null
   readonly property var managedIds: spaceService && spaceService.spacesLoaded
     ? spaceService.managedWorkspaceIds : []
 
@@ -123,7 +123,7 @@ BarWidget {
 
 
   IpcHandler {
-    target: "bitr0t-mission-control-spaces"
+    target: "bitr0t-omarchy-mission-control-spaces"
     function geometry(): string { return root.interactionGeometry() }
   }
 }

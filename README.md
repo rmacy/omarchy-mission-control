@@ -8,7 +8,7 @@ As of 3.0.0 the former standalone Alt-Tab plugin (`bitr0t.window-switcher`) is m
 
 - Live, aspect-correct previews of every window in the selected workspace
 - Desktop thumbnails reconstruct each space over the monitor's actual static or mpvpaper video wallpaper
-- Bar workspace widget that takes over the stock Workspaces slot and shows exactly the spaces that exist
+- Optional bar spaces widget you place yourself; it shows exactly the spaces that exist instead of always painting workspaces 1-5
 - Adaptive layout for laptop, desktop, and ultrawide displays
 - Space cards with drag-to-reorder, correct renumbering, creation, and removal
 - Persistent custom space names shared by Mission Control and the Omarchy bar
@@ -22,13 +22,15 @@ As of 3.0.0 the former standalone Alt-Tab plugin (`bitr0t.window-switcher`) is m
 ## Requirements
 
 - Omarchy 4.0 or newer
-- Hyprland 0.56 or newer with Lua configuration (tested with Hyprland 0.56.2)
-- Quickshell 0.3 or newer
+- Hyprland 0.56 or newer with Lua configuration (tested with Hyprland 0.56.2), including the `hyprctl` client that ships with Hyprland
+- Quickshell 0.3 or newer (Omarchy's `omarchy-shell` host process)
 - Hyprland support for `hyprland-toplevel-export-v1` and foreign-toplevel management; both are present in stock Omarchy
 - Qt Multimedia (`qt6-multimedia`, included by Omarchy) for shared video wallpaper frames
-- `notify-send` for the persistent binding-registration failure notification
+- Bash and coreutils `realpath`, used by the bundled `bin/background-source` wallpaper helper that the overview launches through its `#!/usr/bin/env bash` shebang (`/usr/bin/env` resolves `bash` from `PATH`)
+- A POSIX `sh`, used only by the serialized teardown command chain
+- `notify-send`, used only on the binding-registration failure path
 
-No build step, downloaded artifact, native binary, Node package, Python package, or runtime setup is required.
+No build step, downloaded artifact, native binary, Node package, Python package, or runtime setup is required — the bundled helper is a plain shell script, not a compiled executable. Every dependency above ships with a stock Omarchy installation: `bash`, `sh`, and coreutils `realpath` come from Omarchy's Arch base system, `hyprctl` ships with Hyprland, and `omarchy-shell`, Qt Multimedia, and `notify-send` ship with Omarchy itself.
 
 ## Install
 
@@ -36,20 +38,32 @@ No build step, downloaded artifact, native binary, Node package, Python package,
 omarchy plugin add https://github.com/rmacy/omarchy-mission-control.git --enable
 ```
 
-Omarchy clones the repository into `~/.config/omarchy/plugins/bitr0t.mission-control/`, validates `manifest.json`, and enables it. The plugin installer does not run hooks or use `sudo`. This single install delivers Mission Control, the bar spaces widget, and the Alt-Tab switcher — there is nothing else to install or enable.
+Omarchy clones the repository into `~/.config/omarchy/plugins/bitr0t.omarchy-mission-control/`, validates `manifest.json`, and enables it. The plugin ships no install hooks, uses no `sudo`, and never edits shell configuration itself. When you explicitly enable it, Omarchy records the plugin and optional bar-widget placement in your shell configuration. This single install delivers Mission Control, the bar spaces widget, and the Alt-Tab switcher.
 
 The single overlay entry point, `Overlay.qml`, hosts both surfaces and forwards the shell and manifest handles to Mission Control and the Alt-Tab switcher alike. The two surfaces are mutually exclusive: opening Mission Control dismisses the Alt-Tab switcher, and starting an Alt-Tab switch closes Mission Control.
 
+### Upgrading from the v3 plugin ID
+
+Version 4 changed the package ID from `bitr0t.mission-control` to `bitr0t.omarchy-mission-control`. Omarchy identifies installed plugins by that ID, so the normal update command cannot cross this boundary. Remove the v3 checkout before installing v4:
+
+```bash
+omarchy plugin disable bitr0t.mission-control
+omarchy plugin remove bitr0t.mission-control --yes
+omarchy plugin add https://github.com/rmacy/omarchy-mission-control.git --enable
+```
+
+The managed-space and space-name files under `~/.local/state/omarchy/` are preserved, so the renamed plugin resumes the same state. Removing the old checkout first also prevents both IDs from competing for Mission Control and Alt-Tab shortcuts.
+
 ### Migrating from the standalone Alt-Tab plugin
 
-If you previously installed `bitr0t.window-switcher` (the standalone Omarchy Alt-Tab plugin), disable or remove it **before** enabling Mission Control 3.0.0. Both plugins intentionally bind `Alt+Tab` and `Alt+Shift+Tab`; leaving the standalone switcher enabled causes a binding conflict in which each plugin's registration fights the other's.
+If you previously installed `bitr0t.window-switcher` (the standalone Omarchy Alt-Tab plugin), disable or remove it **before** enabling Mission Control. Both plugins intentionally bind `Alt+Tab` and `Alt+Shift+Tab`; leaving the standalone switcher enabled causes a binding conflict in which each plugin's registration fights the other's.
 
 ```bash
 omarchy plugin disable bitr0t.window-switcher
 omarchy plugin remove bitr0t.window-switcher
 ```
 
-Then install or update Mission Control as above. Disabling or removing the standalone switcher reloads Hyprland, restoring your configured Alt-Tab chords for a moment; enabling Mission Control registers them again, now owned by `bitr0t.mission-control`. No state carries over and none is needed — the switcher keeps everything it needs from Hyprland itself.
+Then install or update Mission Control as above. Disabling or removing the standalone switcher reloads Hyprland, restoring your configured Alt-Tab chords for a moment; enabling Mission Control registers them again, now owned by `bitr0t.omarchy-mission-control`. No state carries over and none is needed — the switcher keeps everything it needs from Hyprland itself.
 
 ## Desktop thumbnails
 
@@ -63,21 +77,42 @@ All space cards share one muted, looping Qt Multimedia decoder and one `VideoOut
 
 ## Bar widget
 
-The plugin also ships a bar widget, `Mission Control Spaces`. It replaces Omarchy's built-in Workspaces indicator: instead of always painting workspaces 1-5, it renders the union of Mission Control's saved spaces and the workspaces Hyprland currently has (up to space 10), so the bar grows and shrinks with the overview. Occupied and focused spaces keep the stock styling, vertical bars are supported, and clicking a space focuses it.
+The plugin also ships a bar widget, `Mission Control Spaces`. Instead of always painting workspaces 1-5, it renders the union of Mission Control's saved spaces and the workspaces Hyprland currently has (up to space 10), so the bar grows and shrinks with the overview. Occupied and focused spaces keep the stock styling, vertical bars are supported, and clicking a space focuses it.
 
 The plugin service is the single owner of `~/.local/state/omarchy/mission-control-spaces.json`. Mission Control and every bar instance bind directly to that service's normalized ID array, so create, remove, or reorder updates are synchronous and cannot diverge across independent file watchers. Spaces that exist only in Mission Control (empty managed spaces) still appear, so clicking one recreates and focuses it.
 
-### Automatic migration
+### Placing the widget
 
-On startup the plugin's service replaces any `omarchy.workspaces` entry in `bar.layout` (any of the `left`, `center`, `right` sections of `~/.config/omarchy/shell.json`) with `bitr0t.mission-control`, keeping the entry's section, position, and inline settings. The replacement runs once and is idempotent: repeated shell restarts detect the already-migrated layout and write nothing, and a layout that never contained the stock widget is left untouched.
+The plugin never edits `~/.config/omarchy/shell.json` or `bar.layout` itself. Bar-widget placement is explicit and user-controlled, and it is performed by Omarchy's own plugin commands:
 
-To put the stock Workspaces widget back — for example before removing the plugin — run:
+- When you install with `--enable` (as above), Omarchy asks which bar section the widget belongs in — `left`, `center`, or `right`, defaulting to the section the plugin's manifest requests — and writes that placement itself. If you install without `--enable`, or want to place or move the widget later, run:
 
 ```bash
-omarchy-shell shell putBarWidget omarchy.workspaces '{}'
+omarchy plugin enable bitr0t.omarchy-mission-control --section left --after omarchy.workspaces
 ```
 
-The command re-adds `omarchy.workspaces` to the bar's left section (or use the bar's widget settings). After that, `omarchy plugin remove bitr0t.mission-control` leaves the stock widget in place. Removing the plugin without restoring first simply drops the widget from the bar; re-add it with the same `putBarWidget` command.
+`--section` accepts `left`, `center`, or `right`, and the position can be pinned with `--index N`, `--before <widget-id>`, or `--after <widget-id>`. Equivalent shell IPC calls also exist:
+
+```bash
+omarchy-shell shell putBarWidget bitr0t.omarchy-mission-control '{"section":"left"}'
+omarchy-shell shell moveBarWidget bitr0t.omarchy-mission-control '{"section":"right"}'
+```
+
+`putBarWidget` adds the widget if it is not already on the bar and leaves it alone otherwise; `moveBarWidget` moves an existing entry.
+
+The widget and the stock Workspaces indicator can coexist in any sections you like. If you prefer the Mission Control widget to take the stock slot, hide the stock one explicitly:
+
+```bash
+omarchy plugin disable omarchy.workspaces
+```
+
+To restore the stock Workspaces widget — for example before or after removing the plugin:
+
+```bash
+omarchy plugin enable omarchy.workspaces --section left
+```
+
+(or use the bar's widget settings, or `omarchy-shell shell putBarWidget omarchy.workspaces '{}'`). Removing the plugin only drops its own widget; the rest of your bar layout, including the stock Workspaces widget, is left exactly as you configured it.
 
 ## Use — Mission Control
 
@@ -155,18 +190,20 @@ Omarchy shell plugins are unsandboxed. This plugin loads a persistent `service`,
 
 The service:
 
-- Owns `~/.local/state/omarchy/mission-control-spaces.json` and `~/.local/state/omarchy/mission-control-space-names.json`, renumbers Hyprland workspace IDs to match managed spaces, and performs the idempotent `omarchy.workspaces` → `bitr0t.mission-control` bar-layout migration.
-- Registers the `Control+Up` shortcut and the three-finger swipe-up gesture at runtime.
+- Owns `~/.local/state/omarchy/mission-control-spaces.json` and `~/.local/state/omarchy/mission-control-space-names.json`, and renumbers Hyprland workspace IDs to match managed spaces. It never writes to `~/.config/omarchy/shell.json` or `bar.layout`; bar-widget placement happens only through Omarchy's own plugin commands when you run them.
+- Registers the `Control+Up` shortcut and the three-finger swipe-up gesture at runtime; the registered Hyprland bindings and the generated Alt-Tab Lua execute fixed `omarchy-shell -q shell …` command lines through Hyprland's `exec_cmd`.
 - Intentionally replaces the configured `Alt+Tab` and `Alt+Shift+Tab` chords while enabled.
 - Registers owner-guarded Hyprland Lua callbacks and a temporary switcher submap through `hyprctl eval`.
 - Uses bounded Alt-state polling while a switch is active and coalesces rapid navigation.
-- Invokes fixed `omarchy-shell` IPC methods (`advance`, `commit`, and `cancel`) on `bitr0t.mission-control`.
-- Runs `hyprctl reload` during orderly teardown to restore configured bindings.
+- Invokes fixed `omarchy-shell` IPC methods (`advance`, `commit`, and `cancel`) on `bitr0t.omarchy-mission-control`.
+- Tears down through one serialized `sh -c` chain — Alt-Tab cleanup, then host cleanup, then exactly one final `hyprctl reload` that restores configured bindings — with no fixed sleep and no independent second cleanup process.
 - Uses `notify-send` only if binding registration fails after bounded retries.
 
-The overlay reads Quickshell's native Hyprland toplevel model. It performs no network requests, privileged commands, package installation, or filesystem writes.
+The overlay reads Quickshell's native Hyprland toplevel model and drives workspace renumbering and window focus with `hyprctl eval` and `hyprctl dispatch`. For desktop thumbnails it also executes the bundled `bin/background-source` helper — a read-only Bash script launched directly through its `#!/usr/bin/env bash` shebang, so via `/usr/bin/env` and `bash` from `PATH` — which inspects local process metadata under `/proc` and the Omarchy current-background state link and canonicalizes wallpaper candidates with coreutils `realpath`. Neither the overlay nor the helper performs network requests, privileged commands, package installation, or filesystem writes.
 
-Runtime commands: `hyprctl`, `omarchy-shell`, `sh` during teardown, and optional failure-path `notify-send`.
+The bar widget renders from the same in-process service and writes nothing. Clicking a space runs a single shell command — `hyprctl dispatch` with a shell-quoted Lua focus call — through the bar's own shell command runner.
+
+Runtime commands, exactly as shipped: `hyprctl` (direct `eval`, `dispatch`, and `reload` calls, plus the calls serialized inside the `sh` teardown chain); `omarchy-shell` (invoked by the registered Hyprland bindings and by the generated Alt-Tab Lua); the bundled `bin/background-source` script (Bash through `/usr/bin/env`, using coreutils `realpath`); `sh -c` (the serialized teardown chain only); and optional failure-path `notify-send`. All of them ship with a stock Omarchy installation, and none requires root privileges, downloads, or network access.
 
 ## Recovery
 
@@ -187,13 +224,11 @@ hyprctl configerrors
 ## Update or remove
 
 ```bash
-omarchy plugin update bitr0t.mission-control
-omarchy plugin remove bitr0t.mission-control
+omarchy plugin update bitr0t.omarchy-mission-control
+omarchy plugin remove bitr0t.omarchy-mission-control
 ```
 
-Updating replaces the whole plugin — Mission Control, bar widget, and Alt-Tab switcher together. Disabling or removing reloads Hyprland, so your configured `Control+Up` mapping, the swipe gesture, and the original `Alt+Tab` and `Alt+Shift+Tab` chords all return.
-
-If the plugin is still installed when you restore the stock bar widget, the next shell restart replaces it with the Mission Control widget again (that is the migration above doing its job); restore after removing, or keep the Mission Control widget and skip this step.
+Updating replaces the whole plugin — Mission Control, bar widget, and Alt-Tab switcher together. Disabling or removing reloads Hyprland, so your configured `Control+Up` mapping, the swipe gesture, and the original `Alt+Tab` and `Alt+Shift+Tab` chords all return. Omarchy removes this plugin's bar-widget entry while leaving every other widget and layout entry untouched. The two state files under `~/.local/state/omarchy/` remain so a reinstall preserves spaces and names; remove those files yourself only if you want to discard that state.
 
 If you want Alt-Tab back as a standalone product afterwards, reinstall it explicitly:
 

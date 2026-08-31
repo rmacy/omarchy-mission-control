@@ -6,10 +6,13 @@
 # Prints exactly one compact JSON object on stdout and exits 0:
 #   {"path":"<canonical path or empty>","kind":"image|video|none","source":"mpvpaper|state|none"}
 #
-# Sources, in priority order:
 #   1. mpvpaper — a live process under MC_PROC_ROOT (default /proc) whose
 #      <output> operand equals the requested monitor or is "*" (all
-#      outputs). Exact monitor matches beat wildcards.
+#      outputs). Exact monitor matches beat wildcards. A process counts as
+#      mpvpaper only after authentication: its process directory must be
+#      owned by the effective user and its /proc/<pid>/exe symlink must
+#      canonicalize to the mpvpaper executable resolved from PATH. argv[0]
+#      is chosen by the process itself and proves nothing.
 #   2. state — the Omarchy current-background symlink, MC_BACKGROUND_LINK
 #      (default $HOME/.local/state/omarchy/current/background).
 #
@@ -35,6 +38,7 @@ MPV_EXACT=()
 MPV_WILDCARD=()
 MPV_OUTPUT=
 MPV_PATH=
+EXPECTED_EXE=
 RESOLVED=
 ESCAPED=
 KIND=
@@ -154,11 +158,24 @@ parse_mpvpaper_argv() {
   MPV_PATH=${positional[1]}
 }
 
+# Sets EXPECTED_EXE to the one canonical mpvpaper executable: the first
+# executable named mpvpaper on PATH with every symlink resolved. Empty when
+# mpvpaper is not installed, which disables the mpvpaper source entirely.
+resolve_expected_exe() {
+  local found=
+  EXPECTED_EXE=
+  if found=$(command -v mpvpaper 2>/dev/null); then
+    EXPECTED_EXE=$(realpath -e -- "$found" 2>/dev/null) || EXPECTED_EXE=
+  fi
+}
+
 # Fills MPV_EXACT (output equals the monitor) and MPV_WILDCARD (output "*")
-# with candidate paths from live mpvpaper processes, in scan order.
+# with candidate paths from authenticated live mpvpaper processes, in scan
+# order. Nothing can be authenticated without an EXPECTED_EXE.
 find_mpvpaper_candidates() {
   local -a cmdlines=()
-  local entry pid
+  local entry pid dir exe
+  [[ -n $EXPECTED_EXE ]] || return 0
   shopt -s nullglob
   for entry in "$proc_root"/*/cmdline; do
     pid=${entry%%/cmdline}
@@ -171,6 +188,13 @@ find_mpvpaper_candidates() {
   shopt -u nullglob
 
   for entry in "${cmdlines[@]}"; do
+    # Authenticate before reading anything the process wrote: the process
+    # directory must belong to the effective user, and the exe symlink must
+    # canonicalize to the expected mpvpaper binary. argv[0] is spoofable.
+    dir=${entry%/cmdline}
+    [[ -O $dir ]] || continue
+    exe=$(realpath -e -- "$dir/exe" 2>/dev/null) || continue
+    [[ $exe == "$EXPECTED_EXE" ]] || continue
     read_cmdline_argv "$entry" 2>/dev/null || continue
     if (( ${#argv[@]} > 1 )) && [[ ${argv[0]##*/} == 'mpvpaper' ]]; then
       parse_mpvpaper_argv "${argv[@]:1}" || continue
@@ -196,6 +220,7 @@ emit_result() {
 
 main() {
   local candidate link
+  resolve_expected_exe
   find_mpvpaper_candidates
   for candidate in "${MPV_EXACT[@]}" "${MPV_WILDCARD[@]}"; do
     if resolve_local "$candidate"; then
