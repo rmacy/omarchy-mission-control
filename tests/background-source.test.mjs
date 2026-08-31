@@ -280,7 +280,7 @@ test("rejects candidates whose process directory is owned by another user", asyn
     }
     const video = fx.addFile("wallpapers/foreign.mp4")
     fx.addProcess(920, ["mpvpaper", "DP-1", video])
-    chownSync(join(fx.env.MC_PROC_ROOT, "920"), 65534) // uid nobody: foreign to euid 0
+    chownSync(join(fx.env.MC_PROC_ROOT, "920"), 65534, 65534) // nobody: foreign to euid 0
     const background = fx.addFile("state/background.png")
     fx.linkState(background)
     const { stdout } = await fx.source("DP-1")
